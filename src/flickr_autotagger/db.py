@@ -5,7 +5,8 @@ from __future__ import annotations
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Generator
+from collections.abc import Generator
+from typing import Any
 
 import structlog
 
@@ -138,7 +139,7 @@ class StateDB:
         where_clause = " AND ".join(conditions) if conditions else "1=1"
         conn = self.connect()
         rows = conn.execute(
-            f"SELECT * FROM photos WHERE {where_clause}", params  # noqa: S608
+            f"SELECT * FROM photos WHERE {where_clause}", params
         ).fetchall()
         return [dict(row) for row in rows]
 
@@ -184,7 +185,7 @@ class StateDB:
             else:
                 placeholders = ",".join("?" * len(tag_names))
                 conn.execute(
-                    f"UPDATE predicted_tags SET approved = 1 "  # noqa: S608
+                    f"UPDATE predicted_tags SET approved = 1 "
                     f"WHERE photo_id = ? AND tag IN ({placeholders})",
                     [photo_id, *tag_names],
                 )
@@ -253,7 +254,7 @@ class StateDB:
 
         for status_col in ("download_status", "tag_status", "push_status"):
             rows = conn.execute(
-                f"SELECT {status_col} as status, COUNT(*) as count "  # noqa: S608
+                f"SELECT {status_col} as status, COUNT(*) as count "
                 f"FROM photos GROUP BY {status_col}"
             ).fetchall()
             stats[status_col] = {row["status"]: row["count"] for row in rows}

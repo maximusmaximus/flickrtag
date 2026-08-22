@@ -17,7 +17,7 @@ logger = structlog.get_logger()
 def _init() -> tuple:
     """Initialize settings and database. Returns (settings, db)."""
     settings = get_settings()
-    db = StateDB(settings.DB_PATH)
+    db = StateDB(settings.db_path)
     db.init_db()
     return settings, db
 
@@ -38,7 +38,7 @@ def auth() -> None:
     """Authenticate with Flickr via OAuth (opens browser)."""
     from flickr_autotagger.auth import authenticate
 
-    settings, _ = _init()
+    settings = get_settings()
     flickr = authenticate(settings)
     click.echo("✅ Authentication successful!")
 
@@ -76,7 +76,7 @@ def download(concurrency: int | None) -> None:
     conc = concurrency or settings.DOWNLOAD_CONCURRENCY
 
     client = FlickrClient(flickr, db)
-    stats = client.download_photos(settings.IMAGE_DIR, conc)
+    stats = client.download_photos(settings.image_dir, conc)
 
     click.echo(
         f"✅ Downloaded: {stats['downloaded']}  "
@@ -108,7 +108,7 @@ def tag(threshold: float | None, max_tags: int | None, custom_tags: str | None) 
         click.echo(f"📋 Loaded {len(candidate_tags)} custom tags.")
 
     tagger = Tagger(model_name="ViT-B-32", pretrained="openai")
-    stats = tagger.tag_all_pending(db, settings.IMAGE_DIR, candidate_tags, thresh, mt)
+    stats = tagger.tag_all_pending(db, settings.image_dir, candidate_tags, thresh, mt)
 
     click.echo(
         f"✅ Tagged: {stats['tagged']}  "
@@ -221,7 +221,7 @@ def export_cmd(fmt: str, output: str | None) -> None:
 
     elif fmt == "xmp":
         out_dir = Path(output) if output else None
-        count = exporter.export_xmp_sidecars(db, settings.IMAGE_DIR, out_dir)
+        count = exporter.export_xmp_sidecars(db, settings.image_dir, out_dir)
         click.echo(f"✅ Created {count} XMP sidecar files")
 
 
@@ -232,8 +232,8 @@ def status() -> None:
     stats = db.get_stats()
 
     click.echo("\n📊 flickr-autotagger Status")
-    click.echo(f"   Database: {settings.DB_PATH}")
-    click.echo(f"   Images:   {settings.IMAGE_DIR}")
+    click.echo(f"   Database: {settings.db_path}")
+    click.echo(f"   Images:   {settings.image_dir}")
     click.echo(f"\n   Total photos: {stats['total_photos']}")
 
     if stats["total_photos"] > 0:

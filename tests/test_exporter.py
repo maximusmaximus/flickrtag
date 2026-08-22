@@ -5,7 +5,6 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
-from typing import Any
 
 from flickr_autotagger.db import StateDB
 from flickr_autotagger.exporter import export_csv, export_json, export_xmp_sidecars

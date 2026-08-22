@@ -58,7 +58,7 @@ class Tagger:
         Args:
             image_path: Path to the image file.
             candidate_tags: List of candidate tag strings.
-            threshold: Minimum confidence score (0.0–1.0) to include a tag.
+            threshold: Minimum confidence score (0.0-1.0) to include a tag.
             max_tags: Maximum number of tags to return.
 
         Returns:
@@ -92,7 +92,7 @@ class Tagger:
 
         # Collect results above threshold
         results: list[tuple[str, float]] = []
-        for tag, score in zip(candidate_tags, probs):
+        for tag, score in zip(candidate_tags, probs, strict=False):
             if score >= threshold:
                 results.append((tag, float(score)))
 

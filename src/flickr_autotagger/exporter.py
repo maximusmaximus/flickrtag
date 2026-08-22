@@ -6,7 +6,6 @@ import csv
 import json
 from pathlib import Path
 from typing import Any
-from xml.etree.ElementTree import Element, SubElement, tostring
 
 import structlog
 
@@ -148,19 +147,19 @@ def _build_xmp(title: str, description: str, tags: list[str]) -> str:
 
     # Title
     if title:
-        xmp += f"   <dc:title>\n"
-        xmp += f"    <rdf:Alt>\n"
+        xmp += "   <dc:title>\n"
+        xmp += "    <rdf:Alt>\n"
         xmp += f'     <rdf:li xml:lang="x-default">{_xml_escape(title)}</rdf:li>\n'
-        xmp += f"    </rdf:Alt>\n"
-        xmp += f"   </dc:title>\n"
+        xmp += "    </rdf:Alt>\n"
+        xmp += "   </dc:title>\n"
 
     # Description
     if description:
-        xmp += f"   <dc:description>\n"
-        xmp += f"    <rdf:Alt>\n"
+        xmp += "   <dc:description>\n"
+        xmp += "    <rdf:Alt>\n"
         xmp += f'     <rdf:li xml:lang="x-default">{_xml_escape(description)}</rdf:li>\n'
-        xmp += f"    </rdf:Alt>\n"
-        xmp += f"   </dc:description>\n"
+        xmp += "    </rdf:Alt>\n"
+        xmp += "   </dc:description>\n"
 
     # Tags as dc:subject
     xmp += "   <dc:subject>\n"
