@@ -111,9 +111,7 @@ def tag(threshold: float | None, max_tags: int | None, custom_tags: str | None) 
     stats = tagger.tag_all_pending(db, settings.image_dir, candidate_tags, thresh, mt)
 
     click.echo(
-        f"✅ Tagged: {stats['tagged']}  "
-        f"Failed: {stats['failed']}  "
-        f"Skipped: {stats['skipped']}"
+        f"✅ Tagged: {stats['tagged']}  Failed: {stats['failed']}  Skipped: {stats['skipped']}"
     )
 
 
@@ -174,7 +172,9 @@ def review(auto_approve: bool) -> None:
 @cli.command()
 @click.option("--dry-run", is_flag=True, help="Show what would be pushed without doing it.")
 @click.option(
-    "--strategy", type=click.Choice(["merge", "replace"]), default=None,
+    "--strategy",
+    type=click.Choice(["merge", "replace"]),
+    default=None,
     help="Tag merge strategy.",
 )
 def push(dry_run: bool, strategy: str | None) -> None:
@@ -199,8 +199,11 @@ def push(dry_run: bool, strategy: str | None) -> None:
 
 @cli.command("export")
 @click.option(
-    "--format", "fmt", type=click.Choice(["json", "csv", "xmp"]),
-    required=True, help="Export format.",
+    "--format",
+    "fmt",
+    type=click.Choice(["json", "csv", "xmp"]),
+    required=True,
+    help="Export format.",
 )
 @click.option("--output", "-o", type=click.Path(), help="Output file or directory path.")
 def export_cmd(fmt: str, output: str | None) -> None:

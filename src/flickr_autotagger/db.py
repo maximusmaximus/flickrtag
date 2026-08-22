@@ -138,17 +138,13 @@ class StateDB:
 
         where_clause = " AND ".join(conditions) if conditions else "1=1"
         conn = self.connect()
-        rows = conn.execute(
-            f"SELECT * FROM photos WHERE {where_clause}", params
-        ).fetchall()
+        rows = conn.execute(f"SELECT * FROM photos WHERE {where_clause}", params).fetchall()
         return [dict(row) for row in rows]
 
     def get_photo_by_flickr_id(self, flickr_id: str) -> dict[str, Any] | None:
         """Retrieve a single photo by its Flickr ID."""
         conn = self.connect()
-        row = conn.execute(
-            "SELECT * FROM photos WHERE flickr_id = ?", (flickr_id,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM photos WHERE flickr_id = ?", (flickr_id,)).fetchone()
         return dict(row) if row else None
 
     def add_existing_tags(self, photo_id: int, tags: list[dict[str, Any]]) -> None:
@@ -160,9 +156,7 @@ class StateDB:
                 [(photo_id, t["tag"], int(t.get("machine_tag", False))) for t in tags],
             )
 
-    def add_predicted_tags(
-        self, photo_id: int, tags: list[tuple[str, float]]
-    ) -> None:
+    def add_predicted_tags(self, photo_id: int, tags: list[tuple[str, float]]) -> None:
         """Store AI-predicted tags for a photo (replaces previous predictions)."""
         with self.transaction() as conn:
             conn.execute("DELETE FROM predicted_tags WHERE photo_id = ?", (photo_id,))
@@ -170,9 +164,7 @@ class StateDB:
                 "INSERT INTO predicted_tags (photo_id, tag, confidence) VALUES (?, ?, ?)",
                 [(photo_id, tag, confidence) for tag, confidence in tags],
             )
-            conn.execute(
-                "UPDATE photos SET tag_status = 'done' WHERE id = ?", (photo_id,)
-            )
+            conn.execute("UPDATE photos SET tag_status = 'done' WHERE id = ?", (photo_id,))
 
     def approve_tags(self, photo_id: int, tag_names: list[str] | None = None) -> None:
         """Approve predicted tags for pushing. If tag_names is None, approve all."""
@@ -220,23 +212,17 @@ class StateDB:
     def mark_pushed(self, photo_id: int) -> None:
         """Mark a photo's tags as pushed to Flickr."""
         with self.transaction() as conn:
-            conn.execute(
-                "UPDATE photos SET push_status = 'pushed' WHERE id = ?", (photo_id,)
-            )
+            conn.execute("UPDATE photos SET push_status = 'pushed' WHERE id = ?", (photo_id,))
 
     def update_download_status(self, photo_id: int, status: str) -> None:
         """Update the download status of a photo."""
         with self.transaction() as conn:
-            conn.execute(
-                "UPDATE photos SET download_status = ? WHERE id = ?", (status, photo_id)
-            )
+            conn.execute("UPDATE photos SET download_status = ? WHERE id = ?", (status, photo_id))
 
     def update_tag_status(self, photo_id: int, status: str) -> None:
         """Update the tag status of a photo."""
         with self.transaction() as conn:
-            conn.execute(
-                "UPDATE photos SET tag_status = ? WHERE id = ?", (status, photo_id)
-            )
+            conn.execute("UPDATE photos SET tag_status = ? WHERE id = ?", (status, photo_id))
 
     def get_all_photos(self) -> list[dict[str, Any]]:
         """Retrieve all photos."""

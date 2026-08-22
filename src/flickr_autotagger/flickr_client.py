@@ -85,18 +85,14 @@ class FlickrClient:
         logger.info("sync_complete", total=total_synced)
         return total_synced
 
-    def download_photos(
-        self, image_dir: Path, concurrency: int = 4
-    ) -> dict[str, int]:
+    def download_photos(self, image_dir: Path, concurrency: int = 4) -> dict[str, int]:
         """Download all pending photos concurrently.
 
         Returns a dict with counts: {'downloaded': N, 'failed': N, 'skipped': N}.
         """
         return asyncio.run(self._download_async(image_dir, concurrency))
 
-    async def _download_async(
-        self, image_dir: Path, concurrency: int
-    ) -> dict[str, int]:
+    async def _download_async(self, image_dir: Path, concurrency: int) -> dict[str, int]:
         """Async download implementation using aiohttp."""
         image_dir.mkdir(parents=True, exist_ok=True)
         pending = self.db.get_photos_by_status(download_status="pending")
@@ -111,8 +107,7 @@ class FlickrClient:
 
         async with aiohttp.ClientSession() as session:
             tasks = [
-                self._download_one(session, semaphore, photo, image_dir, stats)
-                for photo in pending
+                self._download_one(session, semaphore, photo, image_dir, stats) for photo in pending
             ]
             await asyncio.gather(*tasks)
 

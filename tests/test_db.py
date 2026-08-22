@@ -23,9 +23,7 @@ class TestStateDB:
         assert "existing_tags" in table_names
         assert "predicted_tags" in table_names
 
-    def test_upsert_photo_insert(
-        self, tmp_db: StateDB, sample_photo_data: dict[str, Any]
-    ) -> None:
+    def test_upsert_photo_insert(self, tmp_db: StateDB, sample_photo_data: dict[str, Any]) -> None:
         """upsert_photo should insert a new photo and return its ID."""
         photo_id = tmp_db.upsert_photo(sample_photo_data)
         assert photo_id >= 1
@@ -35,9 +33,7 @@ class TestStateDB:
         assert photo["title"] == "Beautiful Sunset"
         assert photo["download_status"] == "pending"
 
-    def test_upsert_photo_update(
-        self, tmp_db: StateDB, sample_photo_data: dict[str, Any]
-    ) -> None:
+    def test_upsert_photo_update(self, tmp_db: StateDB, sample_photo_data: dict[str, Any]) -> None:
         """upsert_photo should update an existing photo on conflict."""
         tmp_db.upsert_photo(sample_photo_data)
 
@@ -48,9 +44,7 @@ class TestStateDB:
         assert photo is not None
         assert photo["title"] == "Updated Title"
 
-    def test_get_photos_by_status(
-        self, tmp_db: StateDB, sample_photo_data: dict[str, Any]
-    ) -> None:
+    def test_get_photos_by_status(self, tmp_db: StateDB, sample_photo_data: dict[str, Any]) -> None:
         """get_photos_by_status should filter by status fields."""
         tmp_db.upsert_photo(sample_photo_data)
 
@@ -75,9 +69,7 @@ class TestStateDB:
         assert result[0]["confidence"] == pytest.approx(0.92)
         assert result[0]["approved"] == 0
 
-    def test_approve_tags_all(
-        self, tmp_db: StateDB, sample_photo_data: dict[str, Any]
-    ) -> None:
+    def test_approve_tags_all(self, tmp_db: StateDB, sample_photo_data: dict[str, Any]) -> None:
         """approve_tags with no tag_names should approve all tags."""
         photo_id = tmp_db.upsert_photo(sample_photo_data)
         tmp_db.add_predicted_tags(photo_id, [("sunset", 0.9), ("beach", 0.8)])
@@ -101,9 +93,7 @@ class TestStateDB:
         tag_names = {t["tag"] for t in approved}
         assert tag_names == {"sunset", "sky"}
 
-    def test_existing_tags(
-        self, tmp_db: StateDB, sample_photo_data: dict[str, Any]
-    ) -> None:
+    def test_existing_tags(self, tmp_db: StateDB, sample_photo_data: dict[str, Any]) -> None:
         """add_existing_tags and get_existing_tags should roundtrip correctly."""
         photo_id = tmp_db.upsert_photo(sample_photo_data)
 
@@ -113,9 +103,7 @@ class TestStateDB:
         result = tmp_db.get_existing_tags(photo_id)
         assert len(result) == 2
 
-    def test_mark_pushed(
-        self, tmp_db: StateDB, sample_photo_data: dict[str, Any]
-    ) -> None:
+    def test_mark_pushed(self, tmp_db: StateDB, sample_photo_data: dict[str, Any]) -> None:
         """mark_pushed should update the push_status to 'pushed'."""
         photo_id = tmp_db.upsert_photo(sample_photo_data)
         tmp_db.mark_pushed(photo_id)
@@ -124,9 +112,7 @@ class TestStateDB:
         assert photo is not None
         assert photo["push_status"] == "pushed"
 
-    def test_get_stats(
-        self, tmp_db: StateDB, sample_photo_data: dict[str, Any]
-    ) -> None:
+    def test_get_stats(self, tmp_db: StateDB, sample_photo_data: dict[str, Any]) -> None:
         """get_stats should return correct summary counts."""
         photo_id = tmp_db.upsert_photo(sample_photo_data)
         tmp_db.add_predicted_tags(photo_id, [("tag1", 0.9)])
@@ -137,9 +123,7 @@ class TestStateDB:
         assert stats["approved_tags"] == 1
         assert stats["download_status"]["pending"] == 1
 
-    def test_get_all_photos(
-        self, tmp_db: StateDB, sample_photo_data: dict[str, Any]
-    ) -> None:
+    def test_get_all_photos(self, tmp_db: StateDB, sample_photo_data: dict[str, Any]) -> None:
         """get_all_photos should return all photos in order."""
         tmp_db.upsert_photo(sample_photo_data)
 

@@ -58,11 +58,19 @@ def export_csv(db: StateDB, output_path: Path) -> int:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow([
-            "flickr_id", "title", "existing_tags",
-            "predicted_tags", "predicted_confidences", "approved_tags",
-            "download_status", "tag_status", "push_status",
-        ])
+        writer.writerow(
+            [
+                "flickr_id",
+                "title",
+                "existing_tags",
+                "predicted_tags",
+                "predicted_confidences",
+                "approved_tags",
+                "download_status",
+                "tag_status",
+                "push_status",
+            ]
+        )
 
         for photo in photos:
             pid = photo["id"]
@@ -72,25 +80,25 @@ def export_csv(db: StateDB, output_path: Path) -> int:
             confidences = [f"{t['confidence']:.3f}" for t in predicted]
             approved = [t["tag"] for t in predicted if t["approved"]]
 
-            writer.writerow([
-                photo["flickr_id"],
-                photo["title"],
-                "; ".join(existing),
-                "; ".join(predicted_tags),
-                "; ".join(confidences),
-                "; ".join(approved),
-                photo["download_status"],
-                photo["tag_status"],
-                photo["push_status"],
-            ])
+            writer.writerow(
+                [
+                    photo["flickr_id"],
+                    photo["title"],
+                    "; ".join(existing),
+                    "; ".join(predicted_tags),
+                    "; ".join(confidences),
+                    "; ".join(approved),
+                    photo["download_status"],
+                    photo["tag_status"],
+                    photo["push_status"],
+                ]
+            )
 
     logger.info("export_csv", path=str(output_path), count=len(photos))
     return len(photos)
 
 
-def export_xmp_sidecars(
-    db: StateDB, image_dir: Path, output_dir: Path | None = None
-) -> int:
+def export_xmp_sidecars(db: StateDB, image_dir: Path, output_dir: Path | None = None) -> int:
     """Generate XMP sidecar files for Lightroom/Darktable compatibility.
 
     Sidecar files are placed alongside the images (or in output_dir if specified).
@@ -141,7 +149,7 @@ def _build_xmp(title: str, description: str, tags: list[str]) -> str:
     xmp = '<?xml version="1.0" encoding="UTF-8"?>\n'
     xmp += '<x:xmpmeta xmlns:x="adobe:ns:meta/">\n'
     xmp += ' <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">\n'
-    xmp += '  <rdf:Description\n'
+    xmp += "  <rdf:Description\n"
     xmp += '   xmlns:dc="http://purl.org/dc/elements/1.1/"\n'
     xmp += '   xmlns:lr="http://ns.adobe.com/lightroom/1.0/">\n'
 
