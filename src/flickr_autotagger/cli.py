@@ -121,7 +121,7 @@ def tag(threshold: float | None, max_tags: int | None, custom_tags: str | None) 
 @click.option("--auto-approve", is_flag=True, help="Approve all predicted tags without review.")
 def review(auto_approve: bool) -> None:
     """Review predicted tags and approve them for pushing."""
-    settings, db = _init()
+    _settings, db = _init()
     photos = db.get_photos_by_status(tag_status="done")
 
     if not photos:
