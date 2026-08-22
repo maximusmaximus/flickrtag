@@ -1,0 +1,30 @@
+site_name: flickr-autotagger
+site_description: AI-powered Flickr photo tagger using CLIP zero-shot classification
+site_url: https://maximusmaximus.github.io/flickrtag/
+repo_url: https://github.com/maximusmaximus/flickrtag
+repo_name: maximusmaximus/flickrtag
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.sections
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Quick Start: quickstart.md
+  - Configuration: configuration.md

@@ -1,0 +1,1 @@
+"""Tag vocabulary models."""
