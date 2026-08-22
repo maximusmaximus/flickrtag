@@ -72,7 +72,7 @@ class Tagger:
             logger.warning("image_load_failed", path=str(image_path), error=str(exc))
             return []
 
-        image_input = _preprocess(image).unsqueeze(0)  # type: ignore[union-attr]
+        image_input = _preprocess(image).unsqueeze(0)
 
         # Prepare text prompts: "a photo of {tag}"
         text_prompts = [f"a photo of {tag}" for tag in candidate_tags]

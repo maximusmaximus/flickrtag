@@ -8,13 +8,13 @@ import click
 import structlog
 
 from flickr_autotagger import __version__
-from flickr_autotagger.config import get_settings
+from flickr_autotagger.config import Settings, get_settings
 from flickr_autotagger.db import StateDB
 
 logger = structlog.get_logger()
 
 
-def _init() -> tuple:
+def _init() -> tuple[Settings, StateDB]:
     """Initialize settings and database. Returns (settings, db)."""
     settings = get_settings()
     db = StateDB(settings.db_path)
