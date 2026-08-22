@@ -34,6 +34,7 @@ jobs:
         run: ruff format --check src/ tests/
 
       - name: Type check (mypy)
+        if: matrix.python-version == '3.12'
         run: mypy src/
 
       - name: Test (pytest)
