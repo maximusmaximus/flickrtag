@@ -86,19 +86,21 @@ class Tagger:
             image_features = image_features / image_features.norm(dim=-1, keepdim=True)
             text_features = text_features / text_features.norm(dim=-1, keepdim=True)
 
-            # Compute similarity (cosine)
-            similarity = (image_features @ text_features.T).squeeze(0)
-            probs = similarity.softmax(dim=-1).cpu().numpy()
+            # Compute cosine similarity (raw scores, not softmax)
+            similarity = (image_features @ text_features.T).squeeze(0).cpu().numpy()
 
-        # Collect results above threshold
-        results: list[tuple[str, float]] = []
-        for tag, score in zip(candidate_tags, probs, strict=False):
-            if score >= threshold:
-                results.append((tag, float(score)))
+        # Collect all (tag, score) pairs, sorted by score descending
+        scored = sorted(
+            zip(candidate_tags, similarity, strict=False),
+            key=lambda x: x[1],
+            reverse=True,
+        )
 
-        # Sort by confidence descending and limit
-        results.sort(key=lambda x: x[1], reverse=True)
-        return results[:max_tags]
+        # Take top-N tags that are above the threshold
+        results: list[tuple[str, float]] = [
+            (tag, float(score)) for tag, score in scored[:max_tags] if score >= threshold
+        ]
+        return results
 
     def tag_all_pending(
         self,
