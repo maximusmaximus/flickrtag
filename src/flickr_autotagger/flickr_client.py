@@ -100,7 +100,10 @@ class FlickrClient:
         return asyncio.run(self._download_async(image_dir, concurrency))
 
     async def _download_async(self, image_dir: Path, concurrency: int) -> dict[str, int]:
-        """Async download implementation using aiohttp with rate-limit backoff."""
+        """Async download implementation using aiohttp with rate-limit backoff.
+
+        Downloads in small batches to avoid flooding Flickr's API.
+        """
         image_dir.mkdir(parents=True, exist_ok=True)
         pending = self.db.get_photos_by_status(download_status="pending")
 
@@ -109,21 +112,46 @@ class FlickrClient:
             return {"downloaded": 0, "failed": 0, "skipped": 0}
 
         logger.info("download_starting", count=len(pending), concurrency=concurrency)
-        semaphore = asyncio.Semaphore(concurrency)
         stats = {"downloaded": 0, "failed": 0, "skipped": 0}
 
-        # Shared rate-limit state: when a 429 is hit, all workers pause
+        # Shared rate-limit state
         rate_limit_lock = asyncio.Lock()
-        backoff_until = [0.0]  # mutable shared timestamp
+        backoff_until = [0.0]
+
+        batch_size = concurrency * 5  # process in small batches
+        semaphore = asyncio.Semaphore(concurrency)
 
         async with aiohttp.ClientSession() as session:
-            tasks = [
-                self._download_one(
-                    session, semaphore, photo, image_dir, stats, rate_limit_lock, backoff_until
-                )
-                for photo in pending
-            ]
-            await asyncio.gather(*tasks)
+            for i in range(0, len(pending), batch_size):
+                batch = pending[i : i + batch_size]
+
+                # Check global rate-limit before starting batch
+                now = asyncio.get_event_loop().time()
+                wait_time = backoff_until[0] - now
+                if wait_time > 0:
+                    logger.info("rate_limit_batch_wait", seconds=round(wait_time, 1))
+                    await asyncio.sleep(wait_time)
+
+                tasks = [
+                    self._download_one(
+                        session, semaphore, photo, image_dir, stats, rate_limit_lock, backoff_until
+                    )
+                    for photo in batch
+                ]
+                await asyncio.gather(*tasks)
+
+                done = stats["downloaded"] + stats["skipped"]
+                if done > 0 and done % 100 < batch_size:
+                    logger.info(
+                        "download_progress",
+                        downloaded=stats["downloaded"],
+                        failed=stats["failed"],
+                        skipped=stats["skipped"],
+                        remaining=len(pending) - i - len(batch),
+                    )
+
+                # Small pause between batches to be polite
+                await asyncio.sleep(1.0)
 
         logger.info("download_complete", **stats)
         return stats
