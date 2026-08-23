@@ -90,10 +90,17 @@ class FlickrClient:
 
         Returns a dict with counts: {'downloaded': N, 'failed': N, 'skipped': N}.
         """
+        # Reset previously errored photos so they get retried
+        conn = self.db.connect()
+        conn.execute(
+            "UPDATE photos SET download_status = 'pending' WHERE download_status = 'error'"
+        )
+        conn.commit()
+
         return asyncio.run(self._download_async(image_dir, concurrency))
 
     async def _download_async(self, image_dir: Path, concurrency: int) -> dict[str, int]:
-        """Async download implementation using aiohttp."""
+        """Async download implementation using aiohttp with rate-limit backoff."""
         image_dir.mkdir(parents=True, exist_ok=True)
         pending = self.db.get_photos_by_status(download_status="pending")
 
@@ -105,9 +112,16 @@ class FlickrClient:
         semaphore = asyncio.Semaphore(concurrency)
         stats = {"downloaded": 0, "failed": 0, "skipped": 0}
 
+        # Shared rate-limit state: when a 429 is hit, all workers pause
+        rate_limit_lock = asyncio.Lock()
+        backoff_until = [0.0]  # mutable shared timestamp
+
         async with aiohttp.ClientSession() as session:
             tasks = [
-                self._download_one(session, semaphore, photo, image_dir, stats) for photo in pending
+                self._download_one(
+                    session, semaphore, photo, image_dir, stats, rate_limit_lock, backoff_until
+                )
+                for photo in pending
             ]
             await asyncio.gather(*tasks)
 
@@ -121,8 +135,10 @@ class FlickrClient:
         photo: dict[str, Any],
         image_dir: Path,
         stats: dict[str, int],
+        rate_limit_lock: asyncio.Lock,
+        backoff_until: list[float],
     ) -> None:
-        """Download a single photo."""
+        """Download a single photo with retry on 429 rate limits."""
         url = photo.get("original_url", "")
         if not url:
             # Build URL from farm/server/id/secret if original_url not available
@@ -139,34 +155,73 @@ class FlickrClient:
             stats["skipped"] += 1
             return
 
-        async with semaphore:
-            try:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
-                    if resp.status != 200:
+        max_retries = 5
+        base_delay = 30.0  # start with 30s backoff on 429
+
+        for attempt in range(max_retries):
+            # Wait if we're in a global rate-limit backoff
+            now = asyncio.get_event_loop().time()
+            wait_time = backoff_until[0] - now
+            if wait_time > 0:
+                logger.debug("rate_limit_waiting", seconds=round(wait_time, 1))
+                await asyncio.sleep(wait_time)
+
+            async with semaphore:
+                try:
+                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+                        if resp.status == 429:
+                            # Rate limited — set global backoff
+                            retry_after = resp.headers.get("Retry-After")
+                            delay = float(retry_after) if retry_after else base_delay * (2**attempt)
+                            async with rate_limit_lock:
+                                new_until = asyncio.get_event_loop().time() + delay
+                                if new_until > backoff_until[0]:
+                                    backoff_until[0] = new_until
+                                    logger.warning(
+                                        "rate_limited",
+                                        delay=round(delay, 1),
+                                        attempt=attempt + 1,
+                                    )
+                            await asyncio.sleep(delay)
+                            continue  # retry
+
+                        if resp.status != 200:
+                            logger.warning(
+                                "download_failed",
+                                flickr_id=photo["flickr_id"],
+                                status=resp.status,
+                            )
+                            self.db.update_download_status(photo["id"], "error")
+                            stats["failed"] += 1
+                            return
+
+                        data = await resp.read()
+                        dest.write_bytes(data)
+
+                    self.db.update_download_status(photo["id"], "done")
+                    logger.debug("downloaded", flickr_id=photo["flickr_id"], path=str(dest))
+                    stats["downloaded"] += 1
+                    return  # success
+
+                except Exception as exc:
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2**attempt)
                         logger.warning(
-                            "download_failed",
+                            "download_retry",
                             flickr_id=photo["flickr_id"],
-                            status=resp.status,
+                            error=str(exc),
+                            delay=round(delay, 1),
+                            attempt=attempt + 1,
+                        )
+                        await asyncio.sleep(delay)
+                    else:
+                        logger.warning(
+                            "download_error",
+                            flickr_id=photo["flickr_id"],
+                            error=str(exc),
                         )
                         self.db.update_download_status(photo["id"], "error")
                         stats["failed"] += 1
-                        return
-
-                    data = await resp.read()
-                    dest.write_bytes(data)
-
-                self.db.update_download_status(photo["id"], "done")
-                logger.debug("downloaded", flickr_id=photo["flickr_id"], path=str(dest))
-                stats["downloaded"] += 1
-
-            except Exception as exc:
-                logger.warning(
-                    "download_error",
-                    flickr_id=photo["flickr_id"],
-                    error=str(exc),
-                )
-                self.db.update_download_status(photo["id"], "error")
-                stats["failed"] += 1
 
     def push_tags(
         self,
