@@ -30,15 +30,15 @@ jobs:
       - name: Lint (ruff check)
         run: ruff check src/ tests/
 
-      - name: Format check (ruff format)
-        run: ruff format --check src/ tests/
+      - name: Format check (black)
+        run: black --check src/ tests/
 
       - name: Type check (mypy)
         if: matrix.python-version == '3.12'
         run: mypy src/
 
       - name: Test (pytest)
-        run: pytest --cov=flickr_autotagger --cov-report=xml -v
+        run: pytest --cov-report=xml -v
 
       - name: Upload coverage
         if: matrix.python-version == '3.12'
