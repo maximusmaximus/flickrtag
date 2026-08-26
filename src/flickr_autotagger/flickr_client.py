@@ -88,19 +88,13 @@ class FlickrClient:
 
         Uses flickr.photos.getSizes to get proper CDN URLs instead of
         constructing static URLs which get rate-limited aggressively.
+        Implements exponential backoff on 429 rate limits.
 
         Returns a dict with counts: {'downloaded': N, 'failed': N, 'skipped': N}.
         """
         import time
 
         import requests
-
-        # Reset previously errored photos so they get retried
-        conn = self.db.connect()
-        conn.execute(
-            "UPDATE photos SET download_status = 'pending' WHERE download_status = 'error'"
-        )
-        conn.commit()
 
         image_dir.mkdir(parents=True, exist_ok=True)
         pending = self.db.get_photos_by_status(download_status="pending")
@@ -110,6 +104,8 @@ class FlickrClient:
             return {"downloaded": 0, "failed": 0, "skipped": 0}
 
         stats = {"downloaded": 0, "failed": 0, "skipped": 0}
+        consecutive_429s = 0
+        base_delay = 2.0  # seconds between requests (slow and steady)
         logger.info("download_starting", count=len(pending))
 
         for photo in pending:
@@ -122,15 +118,55 @@ class FlickrClient:
                 stats["skipped"] += 1
                 continue
 
-            try:
-                # Use Flickr API to get available sizes/URLs
-                sizes_resp = self.flickr.photos.getSizes(photo_id=flickr_id)
-                sizes = sizes_resp["sizes"]["size"]
+            # If we've hit too many 429s in a row, do a long cooldown
+            if consecutive_429s >= 5:
+                cooldown = min(300 * (consecutive_429s // 5), 1800)  # 5-30 min
+                logger.warning(
+                    "rate_limit_cooldown",
+                    consecutive_429s=consecutive_429s,
+                    cooldown_seconds=cooldown,
+                )
+                time.sleep(cooldown)
+                consecutive_429s = 0  # reset after cooldown
 
-                # Prefer Original, then Large, then Medium
+            try:
+                # Use Flickr API to get available sizes/URLs (with retry on 429)
+                sizes = None
+                for api_attempt in range(3):
+                    try:
+                        sizes_resp = self.flickr.photos.getSizes(photo_id=flickr_id)
+                        sizes = sizes_resp["sizes"]["size"]
+                        break
+                    except Exception as api_err:
+                        if "429" in str(api_err):
+                            backoff = 2 ** (api_attempt + 2) * 15  # 60s, 120s, 240s
+                            logger.info(
+                                "api_429_backoff",
+                                flickr_id=flickr_id,
+                                attempt=api_attempt + 1,
+                                backoff_seconds=backoff,
+                            )
+                            time.sleep(backoff)
+                            consecutive_429s += 1
+                            continue
+                        raise
+
+                if sizes is None:
+                    consecutive_429s += 1
+                    logger.warning("api_429_exhausted", flickr_id=flickr_id)
+                    # Leave as pending for next run
+                    continue
+
+                # Prefer Large over Original (smaller files, less CDN load)
                 url = None
                 ext = ".jpg"
-                for preferred in ("Original", "Large 2048", "Large 1600", "Large", "Medium 800"):
+                for preferred in (
+                    "Large 2048",
+                    "Large 1600",
+                    "Large",
+                    "Original",
+                    "Medium 800",
+                ):
                     for s in sizes:
                         if s["label"] == preferred:
                             url = s["source"]
@@ -140,7 +176,6 @@ class FlickrClient:
                         break
 
                 if not url and sizes:
-                    # Fallback to largest available
                     url = sizes[-1]["source"]
                     ext = Path(url).suffix or ".jpg"
 
@@ -150,23 +185,48 @@ class FlickrClient:
                     stats["failed"] += 1
                     continue
 
-                # Download the image via requests (CDN, not API-rate-limited)
+                # Download with retry on 429
                 dest = image_dir / f"{flickr_id}{ext}"
-                resp = requests.get(url, timeout=120)
-                resp.raise_for_status()
-                dest.write_bytes(resp.content)
-
-                self.db.update_download_status(photo["id"], "done")
-                stats["downloaded"] += 1
+                max_retries = 3
+                for attempt in range(max_retries):
+                    resp = requests.get(url, timeout=120)
+                    if resp.status_code == 429:
+                        retry_after = int(resp.headers.get("Retry-After", 0))
+                        backoff = max(retry_after, 2 ** (attempt + 2) * 5)  # 20s, 40s, 80s
+                        logger.info(
+                            "download_429_backoff",
+                            flickr_id=flickr_id,
+                            attempt=attempt + 1,
+                            backoff_seconds=backoff,
+                        )
+                        time.sleep(backoff)
+                        continue
+                    resp.raise_for_status()
+                    dest.write_bytes(resp.content)
+                    self.db.update_download_status(photo["id"], "done")
+                    stats["downloaded"] += 1
+                    consecutive_429s = 0  # reset on success
+                    break
+                else:
+                    # All retries exhausted — still 429'd
+                    consecutive_429s += 1
+                    logger.warning(
+                        "download_429_exhausted",
+                        flickr_id=flickr_id,
+                        consecutive_429s=consecutive_429s,
+                    )
+                    # Don't mark as error; leave as pending for next cron run
+                    continue
 
             except Exception as exc:
                 logger.warning("download_error", flickr_id=flickr_id, error=str(exc))
                 self.db.update_download_status(photo["id"], "error")
                 stats["failed"] += 1
+                consecutive_429s = 0
 
-            # Progress logging every 50 photos
+            # Progress logging every 25 photos
             done = stats["downloaded"] + stats["skipped"] + stats["failed"]
-            if done % 50 == 0:
+            if done % 25 == 0:
                 logger.info(
                     "download_progress",
                     downloaded=stats["downloaded"],
@@ -175,8 +235,8 @@ class FlickrClient:
                     remaining=len(pending) - done,
                 )
 
-            # Pace API calls: ~1 per second to stay under 3600/hour
-            time.sleep(1.0)
+            # Pace: 2 seconds between requests
+            time.sleep(base_delay)
 
         logger.info("download_complete", **stats)
         return stats
