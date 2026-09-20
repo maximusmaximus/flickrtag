@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import click
 import structlog
@@ -250,8 +251,202 @@ def status() -> None:
             click.echo(f"   {label}: {', '.join(parts)}")
 
         click.echo(f"   Approved tags: {stats['approved_tags']}")
+
+    # Venice status
+    try:
+        conn = db.connect()
+        row = conn.execute(
+            "SELECT venice_status, COUNT(*) as count "
+            "FROM photos GROUP BY venice_status"
+        ).fetchall()
+        if row:
+            parts = [f"{r['count']} {r['venice_status'] or 'null'}" for r in row]
+            click.echo(f"   Venice AI: {', '.join(parts)}")
+    except Exception:
+        pass
+
     click.echo()
+
+
+@cli.command("venice-tag")
+@click.option("--retag", is_flag=True, help="Re-analyze all photos, not just pending ones.")
+@click.option("--limit", "-n", default=0, type=int, help="Max photos to process (0 = all).")
+@click.option("--auto-approve", is_flag=True, default=True, help="Auto-approve Venice tags.")
+def venice_tag(retag: bool, limit: int, auto_approve: bool) -> None:
+    """Analyze photos using Venice.ai vision LLM (Qwen3-VL-235B).
+
+    Generates rich structured metadata: tags, descriptions, mood,
+    technique, location guesses, and title suggestions.
+    """
+    from flickr_autotagger.venice_tagger import VeniceTagger
+
+    settings, db = _init()
+
+    if not settings.VENICE_API_KEY:
+        click.echo("❌ VENICE_API_KEY not set. Add it to your .env file.")
+        click.echo("   Get your key at: https://venice.ai/settings/api")
+        raise SystemExit(1)
+
+    tagger = VeniceTagger(settings)
+
+    # Get photos to process
+    if retag:
+        photos = db.get_photos_by_status(download_status="done")
+    else:
+        photos = db.get_photos_needing_venice()
+
+    if limit > 0:
+        photos = photos[:limit]
+
+    if not photos:
+        click.echo("📭 No photos need Venice analysis.")
+        return
+
+    click.echo(f"🔬 Analyzing {len(photos)} photos with Venice.ai ({settings.VENICE_MODEL})...")
+
+    stats = {"tagged": 0, "failed": 0, "skipped": 0}
+
+    for i, photo in enumerate(photos):
+        flickr_id = photo["flickr_id"]
+        image_path = tagger._find_image(settings.image_dir, flickr_id)
+
+        if image_path is None:
+            logger.warning("venice_image_not_found", flickr_id=flickr_id)
+            stats["skipped"] += 1
+            continue
+
+        try:
+            analysis = tagger.analyze_photo(image_path)
+            db.store_venice_analysis(photo["id"], analysis)
+
+            # Store and optionally auto-approve tags
+            tags = [(tag, 1.0) for tag in analysis.get("tags", [])]
+            if tags:
+                db.add_predicted_tags(photo["id"], tags)
+                if auto_approve:
+                    db.approve_tags(photo["id"])
+
+            stats["tagged"] += 1
+
+            # Progress output
+            done = stats["tagged"] + stats["failed"] + stats["skipped"]
+            title_preview = (analysis.get("title_suggestion", "") or "")[:40]
+            tag_count = len(analysis.get("tags", []))
+            click.echo(
+                f"   [{done}/{len(photos)}] ✅ {flickr_id} → "
+                f"\"{title_preview}\" ({tag_count} tags, {analysis.get('scene_type', '?')})"
+            )
+
+        except Exception as exc:
+            db.update_venice_status(photo["id"], "error")
+            stats["failed"] += 1
+            click.echo(f"   [{i+1}/{len(photos)}] ❌ {flickr_id}: {exc}")
+
+        # Brief pause between requests
+        import time
+        time.sleep(0.5)
+
+    click.echo(
+        f"\n✅ Venice analysis complete: "
+        f"{stats['tagged']} tagged, {stats['failed']} failed, {stats['skipped']} skipped"
+    )
+
+
+@cli.command("venice-push")
+@click.option("--dry-run", is_flag=True, help="Show what would be pushed without doing it.")
+@click.option("--update-titles", is_flag=True, help="Also update Flickr titles with AI suggestions.")
+@click.option("--update-descriptions", is_flag=True, default=True, help="Also update Flickr descriptions.")
+@click.option(
+    "--strategy",
+    type=click.Choice(["merge", "replace"]),
+    default=None,
+    help="Tag merge strategy.",
+)
+def venice_push(dry_run: bool, update_titles: bool, update_descriptions: bool, strategy: str | None) -> None:
+    """Push Venice.ai tags and descriptions back to Flickr.
+
+    Unlike the basic push, this can also update photo titles and descriptions
+    with the AI-generated content.
+    """
+    import time
+
+    from flickr_autotagger.auth import authenticate
+    from flickr_autotagger.flickr_client import FlickrClient
+
+    settings, db = _init()
+    flickr = authenticate(settings)
+    merge_strategy = strategy or settings.TAG_MERGE_STRATEGY
+
+    client = FlickrClient(flickr, db)
+
+    # Get all Venice-analyzed photos with approved tags
+    photos = db.get_photos_by_status(venice_status="done")
+    stats = {"pushed": 0, "skipped": 0, "failed": 0}
+
+    if not photos:
+        click.echo("📭 No Venice-analyzed photos to push.")
+        return
+
+    click.echo(f"🚀 Pushing {len(photos)} photos to Flickr...")
+
+    for photo in photos:
+        approved = db.get_approved_tags(photo["id"])
+        venice = db.get_venice_analysis(photo["id"])
+
+        if not approved and not venice:
+            stats["skipped"] += 1
+            continue
+
+        if dry_run:
+            tag_names = [t["tag"] for t in approved] if approved else []
+            click.echo(
+                f"   [DRY RUN] {photo['flickr_id']}: "
+                f"{len(tag_names)} tags"
+                + (f", title: \"{venice.get('ai_title', '')[:30]}\"" if venice and update_titles else "")
+                + (f", desc: \"{venice.get('ai_description', '')[:40]}...\"" if venice and update_descriptions else "")
+            )
+            stats["pushed"] += 1
+            continue
+
+        try:
+            # Push tags
+            if approved:
+                tag_names = [t["tag"] for t in approved]
+                client.push_tags(photo["flickr_id"], tag_names, merge_strategy)
+
+            # Update title and/or description via Flickr API
+            if venice and (update_titles or update_descriptions):
+                meta_kwargs: dict[str, Any] = {"photo_id": photo["flickr_id"]}
+                if update_titles and venice.get("ai_title"):
+                    meta_kwargs["title"] = venice["ai_title"]
+                if update_descriptions and venice.get("ai_description"):
+                    meta_kwargs["description"] = venice["ai_description"]
+
+                if len(meta_kwargs) > 1:  # More than just photo_id
+                    flickr.photos.setMeta(**meta_kwargs)
+
+            db.mark_pushed(photo["id"])
+            stats["pushed"] += 1
+
+            # Rate limit
+            time.sleep(1.5)
+
+        except Exception as exc:
+            error_str = str(exc)
+            if "429" in error_str:
+                click.echo(f"   ⚠️ Rate limited on {photo['flickr_id']}, sleeping 60s...")
+                time.sleep(60)
+            logger.error("venice_push_failed", flickr_id=photo["flickr_id"], error=error_str)
+            stats["failed"] += 1
+
+    prefix = "[DRY RUN] " if dry_run else ""
+    click.echo(
+        f"\n{prefix}✅ Pushed: {stats['pushed']}  "
+        f"Skipped: {stats['skipped']}  "
+        f"Failed: {stats['failed']}"
+    )
 
 
 if __name__ == "__main__":
     cli()
+

@@ -28,7 +28,19 @@ CREATE TABLE IF NOT EXISTS photos (
     download_status TEXT    DEFAULT 'pending',
     tag_status      TEXT    DEFAULT 'pending',
     push_status     TEXT    DEFAULT 'pending',
-    local_path      TEXT
+    local_path      TEXT,
+    -- Venice.ai analysis fields
+    venice_status   TEXT    DEFAULT 'pending',
+    ai_title        TEXT,
+    ai_description  TEXT,
+    scene_type      TEXT,
+    mood            TEXT,
+    technique       TEXT,
+    colors          TEXT,
+    location_guess  TEXT,
+    time_of_day     TEXT,
+    season_guess    TEXT,
+    objects         TEXT
 );
 
 CREATE TABLE IF NOT EXISTS existing_tags (
@@ -52,6 +64,21 @@ CREATE INDEX IF NOT EXISTS idx_photos_tag_status ON photos(tag_status);
 CREATE INDEX IF NOT EXISTS idx_photos_push_status ON photos(push_status);
 CREATE INDEX IF NOT EXISTS idx_existing_tags_photo ON existing_tags(photo_id);
 CREATE INDEX IF NOT EXISTS idx_predicted_tags_photo ON predicted_tags(photo_id);
+"""
+
+# Migration SQL for existing databases that don't have Venice columns yet
+MIGRATION_VENICE_SQL = """
+ALTER TABLE photos ADD COLUMN venice_status TEXT DEFAULT 'pending';
+ALTER TABLE photos ADD COLUMN ai_title TEXT;
+ALTER TABLE photos ADD COLUMN ai_description TEXT;
+ALTER TABLE photos ADD COLUMN scene_type TEXT;
+ALTER TABLE photos ADD COLUMN mood TEXT;
+ALTER TABLE photos ADD COLUMN technique TEXT;
+ALTER TABLE photos ADD COLUMN colors TEXT;
+ALTER TABLE photos ADD COLUMN location_guess TEXT;
+ALTER TABLE photos ADD COLUMN time_of_day TEXT;
+ALTER TABLE photos ADD COLUMN season_guess TEXT;
+ALTER TABLE photos ADD COLUMN objects TEXT;
 """
 
 
@@ -84,10 +111,40 @@ class StateDB:
             raise
 
     def init_db(self) -> None:
-        """Create database tables if they don't exist."""
+        """Create database tables if they don't exist, and apply migrations."""
         with self.transaction() as conn:
             conn.executescript(SCHEMA_SQL)
+
+        # Apply Venice migration for existing databases
+        self._migrate_venice()
         logger.info("database_initialized", path=str(self.db_path))
+
+    def _migrate_venice(self) -> None:
+        """Add Venice columns to existing databases (idempotent)."""
+        conn = self.connect()
+        # Check if venice_status column exists
+        cursor = conn.execute("PRAGMA table_info(photos)")
+        existing_cols = {row["name"] for row in cursor.fetchall()}
+
+        if "venice_status" not in existing_cols:
+            logger.info("migrating_venice_columns")
+            for stmt in MIGRATION_VENICE_SQL.strip().split(";"):
+                stmt = stmt.strip()
+                if stmt:
+                    try:
+                        conn.execute(stmt)
+                    except Exception:
+                        pass  # Column may already exist
+            conn.commit()
+            # Create index if missing
+            try:
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_photos_venice_status "
+                    "ON photos(venice_status)"
+                )
+                conn.commit()
+            except Exception:
+                pass
 
     def upsert_photo(self, photo_data: dict[str, Any]) -> int:
         """Insert or update a photo record. Returns the internal photo ID."""
@@ -122,6 +179,7 @@ class StateDB:
         download_status: str | None = None,
         tag_status: str | None = None,
         push_status: str | None = None,
+        venice_status: str | None = None,
     ) -> list[dict[str, Any]]:
         """Retrieve photos filtered by one or more status fields."""
         conditions: list[str] = []
@@ -135,6 +193,9 @@ class StateDB:
         if push_status is not None:
             conditions.append("push_status = ?")
             params.append(push_status)
+        if venice_status is not None:
+            conditions.append("venice_status = ?")
+            params.append(venice_status)
 
         where_clause = " AND ".join(conditions) if conditions else "1=1"
         conn = self.connect()
@@ -257,3 +318,85 @@ class StateDB:
         if self._conn is not None:
             self._conn.close()
             self._conn = None
+
+    # ── Venice.ai analysis methods ──────────────────────────────────────
+
+    def store_venice_analysis(self, photo_id: int, analysis: dict[str, Any]) -> None:
+        """Store Venice.ai structured analysis results for a photo."""
+        import json as _json
+
+        with self.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE photos SET
+                    venice_status = 'done',
+                    ai_title = ?,
+                    ai_description = ?,
+                    scene_type = ?,
+                    mood = ?,
+                    technique = ?,
+                    colors = ?,
+                    location_guess = ?,
+                    time_of_day = ?,
+                    season_guess = ?,
+                    objects = ?,
+                    tag_status = 'done'
+                WHERE id = ?
+                """,
+                (
+                    analysis.get("title_suggestion", ""),
+                    analysis.get("description", ""),
+                    analysis.get("scene_type", ""),
+                    analysis.get("mood", ""),
+                    analysis.get("technique", ""),
+                    _json.dumps(analysis.get("colors", [])),
+                    analysis.get("location_guess", ""),
+                    analysis.get("time_of_day", ""),
+                    analysis.get("season_guess", ""),
+                    _json.dumps(analysis.get("objects", [])),
+                    photo_id,
+                ),
+            )
+
+    def get_photos_needing_venice(self) -> list[dict[str, Any]]:
+        """Get all downloaded photos that haven't been analyzed by Venice yet."""
+        conn = self.connect()
+        rows = conn.execute(
+            "SELECT * FROM photos WHERE download_status = 'done' "
+            "AND (venice_status = 'pending' OR venice_status IS NULL) "
+            "ORDER BY id"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def update_venice_status(self, photo_id: int, status: str) -> None:
+        """Update the Venice analysis status of a photo."""
+        with self.transaction() as conn:
+            conn.execute(
+                "UPDATE photos SET venice_status = ? WHERE id = ?", (status, photo_id)
+            )
+
+    def get_venice_analysis(self, photo_id: int) -> dict[str, Any] | None:
+        """Get the Venice analysis fields for a photo."""
+        import json as _json
+
+        conn = self.connect()
+        row = conn.execute(
+            "SELECT ai_title, ai_description, scene_type, mood, technique, "
+            "colors, location_guess, time_of_day, season_guess, objects "
+            "FROM photos WHERE id = ?",
+            (photo_id,),
+        ).fetchone()
+
+        if row is None:
+            return None
+
+        result = dict(row)
+        # Parse JSON fields
+        for json_field in ("colors", "objects"):
+            val = result.get(json_field)
+            if val and isinstance(val, str):
+                try:
+                    result[json_field] = _json.loads(val)
+                except _json.JSONDecodeError:
+                    result[json_field] = []
+        return result

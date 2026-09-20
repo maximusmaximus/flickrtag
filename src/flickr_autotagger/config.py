@@ -10,17 +10,28 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Application settings, loaded from .env file or environment variables."""
 
+    # Flickr credentials
     FLICKR_API_KEY: str
     FLICKR_API_SECRET: str
     FLICKR_USER_ID: str | None = None
 
+    # Data storage
     DATA_DIR: Path = Path("~/.flickr-autotagger").expanduser()
 
+    # CLIP tagger settings (legacy)
     CLIP_MODEL: str = "clip-vit-base-patch32"
     TAG_THRESHOLD: float = 0.25
     MAX_TAGS_PER_PHOTO: int = 15
     DOWNLOAD_CONCURRENCY: int = 4
     TAG_MERGE_STRATEGY: Literal["merge", "replace"] = "merge"
+
+    # Venice.ai vision tagger settings
+    VENICE_API_KEY: str = ""
+    VENICE_MODEL: str = "qwen3-vl-235b-a22b"
+    VENICE_CONCURRENCY: int = 3
+
+    # Tagger backend selection
+    TAGGER_BACKEND: Literal["clip", "venice"] = "venice"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
