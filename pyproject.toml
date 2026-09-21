@@ -5,14 +5,14 @@ build-backend = "hatchling.build"
 [project]
 name = "flickr-autotagger"
 version = "0.1.0"
-description = "AI-powered Flickr photo tagger using CLIP zero-shot classification"
+description = "AI-powered Flickr photo tagger using Venice.ai vision LLM with geolocation and smart albums"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 authors = [
     { name = "maximusmaximus" },
 ]
-keywords = ["flickr", "clip", "tagging", "ai", "photos", "machine-learning"]
+keywords = ["flickr", "venice-ai", "vision-llm", "tagging", "ai", "photos", "geolocation", "auto-albums", "qwen3-vl"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: End Users/Desktop",
