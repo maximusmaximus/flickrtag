@@ -131,7 +131,7 @@ def build_album_plan(db: StateDB, *, min_photos: int = 3) -> list[dict[str, Any]
             continue
         albums.append({
             "name": f"📍 {location}",
-            "description": f"Photos taken in or near {location}. Auto-organized by AI analysis.",
+            "description": f"Photos taken in or near {location}.",
             "type": "location",
             "key": location,
             "photo_ids": [p["flickr_id"] for p in photos],
@@ -144,7 +144,7 @@ def build_album_plan(db: StateDB, *, min_photos: int = 3) -> list[dict[str, Any]
             continue
         albums.append({
             "name": f"🎨 {scene.title()}",
-            "description": f"Photos categorized as '{scene}' by AI scene analysis.",
+            "description": f"A curated collection of {scene} photography.",
             "type": "scene",
             "key": scene,
             "photo_ids": [p["flickr_id"] for p in photos],

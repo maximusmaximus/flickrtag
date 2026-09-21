@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,81 @@ from flickr_autotagger.config import Settings, get_settings
 from flickr_autotagger.db import StateDB
 
 logger = structlog.get_logger()
+
+GENERIC_EXACT_TITLES = {
+    "",
+    "untitled",
+    "photo",
+    "image",
+    "picture",
+    "olympus digital camera",
+    "nikon digital camera",
+    "canon digital camera",
+    "sony digital camera",
+    "panasonic digital camera",
+    "front",
+    "back",
+    "maxresdefault",
+}
+
+
+def is_generic_title(title: str | None) -> bool:
+    """Determine if a title is a camera-generated filename or generic default."""
+    if not title:
+        return True
+    t = title.strip()
+    lower = t.lower()
+    if lower in GENERIC_EXACT_TITLES:
+        return True
+
+    # e.g. "Untitled", "Untitled 1", "Untitled1"
+    if re.match(r"^untitled\s*\d*$", lower):
+        return True
+
+    # Camera / phone filename patterns:
+    # e.g., PA030021, _A090086, _7270008, DSC_1234, IMG_2015..., PANO_2015..., Screenshot_..., PC190003 copy
+    if re.match(
+        r"^(?:"
+        r"[_A-Za-z0-9]{1,6}[_-]?\d{3,12}(?:[ _-]?\(\d+\))?(?:\s+copy(?:\s*\d+)?)?"
+        r"|IMG_\d{8}_\d{6}.*"
+        r"|VID_\d{8}_\d{6}.*"
+        r"|PANO_\d{8}_\d{6}.*"
+        r"|Screenshot_\d{4}[-_].*"
+        r"|\d{4}[-_]\d{2}[-_]\d{2}.*"
+        r"|\d{1,4}"
+        r")(?:\.[a-zA-Z0-9]{2,4})?$",
+        t,
+        re.IGNORECASE,
+    ):
+        return True
+
+    # Random alphanumeric web/imgur upload IDs (e.g. q29thUH)
+    if re.match(r"^[a-zA-Z0-9_-]{6,12}$", t) and len(t.split()) == 1:
+        if (
+            sum(c.isdigit() for c in t) >= 1
+            and sum(c.isupper() for c in t) >= 1
+            and sum(c.islower() for c in t) >= 1
+        ):
+            return True
+
+    return False
+
+
+def clean_no_ai(text: str | None) -> str:
+    """Ensure no mentions of AI, Venice, Qwen, etc. appear in titles, descriptions, or tags."""
+    if not text:
+        return ""
+    cleaned = text
+    patterns = [
+        r"\b(?:auto-)?organized by (?:ai|artificial intelligence)\b",
+        r"\bby (?:ai|artificial intelligence) (?:scene )?analysis\b",
+        r"\b(?:ai[- ]generated|ai[- ]suggested|ai[- ]assisted)\b",
+        r"\b(?:venice\.ai|venice ai|qwen3?-vl)\b",
+    ]
+    for pat in patterns:
+        cleaned = re.sub(pat, "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+    return cleaned
 
 
 def _init() -> tuple[Settings, StateDB]:
@@ -353,41 +429,53 @@ def venice_tag(retag: bool, limit: int, auto_approve: bool) -> None:
 
 
 @cli.command("venice-push")
-@click.option("--dry-run", is_flag=True, help="Show what would be pushed without doing it.")
-@click.option("--update-titles", is_flag=True, help="Also update Flickr titles with AI suggestions.")
-@click.option("--update-descriptions", is_flag=True, default=True, help="Also update Flickr descriptions.")
+@click.option("--dry-run", is_flag=True, help="Preview what would be updated without touching Flickr.")
+@click.option("--limit", "-n", default=0, type=int, help="Max photos to push (0 = all).")
 @click.option(
     "--strategy",
     type=click.Choice(["merge", "replace"]),
     default=None,
-    help="Tag merge strategy.",
+    help="Tag merge strategy (merge or replace).",
 )
-def venice_push(dry_run: bool, update_titles: bool, update_descriptions: bool, strategy: str | None) -> None:
-    """Push Venice.ai tags and descriptions back to Flickr.
+def venice_push(dry_run: bool, limit: int, strategy: str | None) -> None:
+    """Push Venice metadata back to Flickr.
 
-    Unlike the basic push, this can also update photo titles and descriptions
-    with the AI-generated content.
+    - Updates titles ONLY for photos with generic camera filenames (e.g. PA030021, _A090086, Untitled).
+      Photos with human-given titles are preserved.
+    - Updates description with rich narrative description (clean of any AI mentions).
+    - Adds 10-20 specific tags (clean of any AI mentions).
     """
     import time
 
-    from flickr_autotagger.auth import authenticate
     from flickr_autotagger.flickr_client import FlickrClient
 
     settings, db = _init()
-    flickr = authenticate(settings)
     merge_strategy = strategy or settings.TAG_MERGE_STRATEGY
 
-    client = FlickrClient(flickr, db)
-
-    # Get all Venice-analyzed photos with approved tags
     photos = db.get_photos_by_status(venice_status="done")
-    stats = {"pushed": 0, "skipped": 0, "failed": 0}
+    if limit > 0:
+        photos = photos[:limit]
 
     if not photos:
         click.echo("📭 No Venice-analyzed photos to push.")
         return
 
-    click.echo(f"🚀 Pushing {len(photos)} photos to Flickr...")
+    click.echo(f"🚀 Preparing metadata updates for {len(photos)} photos...")
+
+    flickr = None
+    client = None
+    if not dry_run:
+        from flickr_autotagger.auth import authenticate
+        flickr = authenticate(settings)
+        client = FlickrClient(flickr, db)
+
+    stats = {
+        "pushed": 0,
+        "titles_updated": 0,
+        "titles_preserved": 0,
+        "skipped": 0,
+        "failed": 0,
+    }
 
     for photo in photos:
         approved = db.get_approved_tags(photo["id"])
@@ -397,38 +485,70 @@ def venice_push(dry_run: bool, update_titles: bool, update_descriptions: bool, s
             stats["skipped"] += 1
             continue
 
+        raw_tags = [t["tag"] for t in approved] if approved else []
+        clean_tags = [clean_no_ai(t) for t in raw_tags if clean_no_ai(t)]
+
+        # Determine whether to update title
+        orig_title = (photo.get("title") or "").strip()
+        should_update_title = is_generic_title(orig_title)
+
+        target_title = None
+        if should_update_title:
+            new_title = clean_no_ai(venice.get("ai_title") if venice else "")
+            if new_title:
+                target_title = new_title
+
+        target_desc = clean_no_ai(venice.get("ai_description") if venice else "")
+
         if dry_run:
-            tag_names = [t["tag"] for t in approved] if approved else []
-            click.echo(
-                f"   [DRY RUN] {photo['flickr_id']}: "
-                f"{len(tag_names)} tags"
-                + (f", title: \"{venice.get('ai_title', '')[:30]}\"" if venice and update_titles else "")
-                + (f", desc: \"{venice.get('ai_description', '')[:40]}...\"" if venice and update_descriptions else "")
+            title_msg = (
+                f'Title -> "{target_title}" (was "{orig_title}")'
+                if target_title
+                else f'Title: KEPT "{orig_title}"'
             )
+            desc_preview = f'Desc: "{target_desc[:45]}..."' if target_desc else "No desc"
+            click.echo(
+                f"   [DRY RUN] {photo['flickr_id']} | {title_msg} | {desc_preview} | {len(clean_tags)} tags"
+            )
+            if target_title:
+                stats["titles_updated"] += 1
+            else:
+                stats["titles_preserved"] += 1
             stats["pushed"] += 1
             continue
 
         try:
-            # Push tags
-            if approved:
-                tag_names = [t["tag"] for t in approved]
-                client.push_tags(photo["flickr_id"], tag_names, merge_strategy)
+            # 1. Push tags
+            if clean_tags and client:
+                client.push_tags(photo["flickr_id"], clean_tags, merge_strategy)
 
-            # Update title and/or description via Flickr API
-            if venice and (update_titles or update_descriptions):
+            # 2. Update title and description via Flickr API
+            if flickr:
                 meta_kwargs: dict[str, Any] = {"photo_id": photo["flickr_id"]}
-                if update_titles and venice.get("ai_title"):
-                    meta_kwargs["title"] = venice["ai_title"]
-                if update_descriptions and venice.get("ai_description"):
-                    meta_kwargs["description"] = venice["ai_description"]
+                if target_title:
+                    meta_kwargs["title"] = target_title
+                    stats["titles_updated"] += 1
+                else:
+                    stats["titles_preserved"] += 1
 
-                if len(meta_kwargs) > 1:  # More than just photo_id
+                if target_desc:
+                    meta_kwargs["description"] = target_desc
+
+                if len(meta_kwargs) > 1:
                     flickr.photos.setMeta(**meta_kwargs)
 
             db.mark_pushed(photo["id"])
             stats["pushed"] += 1
 
-            # Rate limit
+            # Progress logging every 25 photos
+            done = stats["pushed"] + stats["failed"] + stats["skipped"]
+            if done % 25 == 0:
+                click.echo(
+                    f"   [{done}/{len(photos)}] Pushed {stats['pushed']} photos "
+                    f"(Titles updated: {stats['titles_updated']}, Preserved: {stats['titles_preserved']})"
+                )
+
+            # Rate limit pacing
             time.sleep(1.5)
 
         except Exception as exc:
@@ -441,9 +561,9 @@ def venice_push(dry_run: bool, update_titles: bool, update_descriptions: bool, s
 
     prefix = "[DRY RUN] " if dry_run else ""
     click.echo(
-        f"\n{prefix}✅ Pushed: {stats['pushed']}  "
-        f"Skipped: {stats['skipped']}  "
-        f"Failed: {stats['failed']}"
+        f"\n{prefix}✅ Complete: {stats['pushed']} photos processed "
+        f"({stats['titles_updated']} titles updated, {stats['titles_preserved']} named titles preserved), "
+        f"{stats['skipped']} skipped, {stats['failed']} failed"
     )
 
 
