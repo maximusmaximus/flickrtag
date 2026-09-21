@@ -452,12 +452,10 @@ def venice_push(dry_run: bool, limit: int, strategy: str | None) -> None:
     settings, db = _init()
     merge_strategy = strategy or settings.TAG_MERGE_STRATEGY
 
-    photos = db.get_photos_by_status(venice_status="done")
-    if limit > 0:
-        photos = photos[:limit]
+    photos = db.get_photos_needing_venice_push(limit=limit if limit > 0 else None)
 
     if not photos:
-        click.echo("📭 No Venice-analyzed photos to push.")
+        click.echo("📭 No Venice-analyzed photos needing push.")
         return
 
     click.echo(f"🚀 Preparing metadata updates for {len(photos)} photos...")
@@ -537,7 +535,7 @@ def venice_push(dry_run: bool, limit: int, strategy: str | None) -> None:
                 if len(meta_kwargs) > 1:
                     flickr.photos.setMeta(**meta_kwargs)
 
-            db.mark_pushed(photo["id"])
+            db.mark_venice_pushed(photo["id"])
             stats["pushed"] += 1
 
             # Progress logging every 25 photos

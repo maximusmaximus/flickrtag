@@ -154,6 +154,13 @@ class StateDB:
             except Exception:
                 pass
 
+        if "venice_pushed" not in existing_cols:
+            try:
+                conn.execute("ALTER TABLE photos ADD COLUMN venice_pushed INTEGER DEFAULT 0")
+                conn.commit()
+            except Exception:
+                pass
+
     def _migrate_geo(self) -> None:
         """Add geo columns to existing databases (idempotent)."""
         conn = self.connect()
@@ -450,3 +457,22 @@ class StateDB:
                 except _json.JSONDecodeError:
                     result[json_field] = []
         return result
+
+    def mark_venice_pushed(self, photo_id: int) -> None:
+        """Mark a photo's Venice metadata as pushed to Flickr."""
+        with self.transaction() as conn:
+            conn.execute("UPDATE photos SET venice_pushed = 1 WHERE id = ?", (photo_id,))
+
+    def get_photos_needing_venice_push(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """Get photos where Venice analysis is done but metadata has not yet been pushed."""
+        conn = self.connect()
+        query = (
+            "SELECT * FROM photos "
+            "WHERE venice_status = 'done' AND (venice_pushed = 0 OR venice_pushed IS NULL) "
+            "ORDER BY id ASC"
+        )
+        if limit:
+            query += f" LIMIT {int(limit)}"
+        rows = conn.execute(query).fetchall()
+        return [dict(row) for row in rows]
+
