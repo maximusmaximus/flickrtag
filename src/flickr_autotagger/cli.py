@@ -447,6 +447,108 @@ def venice_push(dry_run: bool, update_titles: bool, update_descriptions: bool, s
     )
 
 
+@cli.command("geocode")
+def geocode_cmd() -> None:
+    """Geocode Venice.ai location guesses to lat/long coordinates.
+
+    Uses OpenStreetMap Nominatim (free, no API key needed).
+    Rate limited to 1 request/second.
+    """
+    from flickr_autotagger.geocoder import geocode_all_pending
+
+    _settings, db = _init()
+    click.echo("🌍 Geocoding location guesses...")
+    stats = geocode_all_pending(db)
+
+    click.echo(
+        f"\n✅ Geocoded: {stats['geocoded']}  "
+        f"No location: {stats['no_location']}  "
+        f"Failed: {stats['failed']}  "
+        f"Skipped: {stats['skipped']}"
+    )
+
+
+@cli.command("geo-push")
+@click.option("--dry-run", is_flag=True, help="Show what would be pushed without doing it.")
+def geo_push(dry_run: bool) -> None:
+    """Push geocoded lat/long and indoor/outdoor context to Flickr.
+
+    Your photos will appear on Flickr's world map!
+    """
+    from flickr_autotagger.auth import authenticate
+    from flickr_autotagger.geocoder import push_geo_to_flickr
+
+    settings, db = _init()
+    flickr = authenticate(settings)
+
+    click.echo("📍 Pushing geolocation data to Flickr...")
+    stats = push_geo_to_flickr(flickr, db, dry_run=dry_run)
+
+    prefix = "[DRY RUN] " if dry_run else ""
+    click.echo(
+        f"\n{prefix}✅ Pushed: {stats['pushed']}  "
+        f"Skipped: {stats['skipped']}  "
+        f"Failed: {stats['failed']}"
+    )
+
+
+@cli.command("auto-albums")
+@click.option("--dry-run", is_flag=True, help="Show album plan without creating anything.")
+@click.option("--min-photos", default=5, type=int, help="Minimum photos per album.")
+@click.option("--max-albums", default=50, type=int, help="Maximum albums to create.")
+def auto_albums(dry_run: bool, min_photos: int, max_albums: int) -> None:
+    """Create smart Flickr albums based on AI analysis.
+
+    Groups photos by location and scene type, then creates
+    Flickr photosets automatically.
+    """
+    from flickr_autotagger.albums import build_album_plan, create_albums_on_flickr
+    from flickr_autotagger.auth import authenticate
+
+    settings, db = _init()
+
+    click.echo("📁 Building album plan from Venice.ai analysis...")
+    albums = build_album_plan(db, min_photos=min_photos)
+
+    if not albums:
+        click.echo("📭 Not enough analyzed photos to create albums yet.")
+        return
+
+    # Show the plan
+    click.echo(f"\n📋 Album plan ({len(albums)} albums):\n")
+    location_albums = [a for a in albums if a["type"] == "location"]
+    scene_albums = [a for a in albums if a["type"] == "scene"]
+
+    if location_albums:
+        click.echo("   📍 By Location:")
+        for a in location_albums[:20]:
+            click.echo(f"      {a['name']} ({a['count']} photos)")
+
+    if scene_albums:
+        click.echo("\n   🎨 By Scene Type:")
+        for a in scene_albums[:20]:
+            click.echo(f"      {a['name']} ({a['count']} photos)")
+
+    click.echo(f"\n   Total: {sum(a['count'] for a in albums)} photo placements across {len(albums)} albums")
+
+    if dry_run:
+        click.echo("\n[DRY RUN] No albums created.")
+        return
+
+    if not click.confirm("\n🚀 Create these albums on Flickr?"):
+        click.echo("Cancelled.")
+        return
+
+    flickr = authenticate(settings)
+    stats = create_albums_on_flickr(flickr, albums, max_albums=max_albums)
+
+    click.echo(
+        f"\n✅ Created: {stats['created']}  "
+        f"Photos added: {stats['photos_added']}  "
+        f"Skipped: {stats['skipped']}  "
+        f"Failed: {stats['failed']}"
+    )
+
+
 if __name__ == "__main__":
     cli()
-

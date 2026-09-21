@@ -81,6 +81,15 @@ ALTER TABLE photos ADD COLUMN season_guess TEXT;
 ALTER TABLE photos ADD COLUMN objects TEXT;
 """
 
+# Migration SQL for geo columns
+MIGRATION_GEO_SQL = """
+ALTER TABLE photos ADD COLUMN latitude REAL;
+ALTER TABLE photos ADD COLUMN longitude REAL;
+ALTER TABLE photos ADD COLUMN geo_display_name TEXT;
+ALTER TABLE photos ADD COLUMN geo_status TEXT DEFAULT 'pending';
+ALTER TABLE photos ADD COLUMN geo_pushed INTEGER DEFAULT 0;
+"""
+
 
 class StateDB:
     """SQLite-backed state database for tracking the full photo pipeline."""
@@ -117,12 +126,12 @@ class StateDB:
 
         # Apply Venice migration for existing databases
         self._migrate_venice()
+        self._migrate_geo()
         logger.info("database_initialized", path=str(self.db_path))
 
     def _migrate_venice(self) -> None:
         """Add Venice columns to existing databases (idempotent)."""
         conn = self.connect()
-        # Check if venice_status column exists
         cursor = conn.execute("PRAGMA table_info(photos)")
         existing_cols = {row["name"] for row in cursor.fetchall()}
 
@@ -134,9 +143,8 @@ class StateDB:
                     try:
                         conn.execute(stmt)
                     except Exception:
-                        pass  # Column may already exist
+                        pass
             conn.commit()
-            # Create index if missing
             try:
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_photos_venice_status "
@@ -145,6 +153,48 @@ class StateDB:
                 conn.commit()
             except Exception:
                 pass
+
+    def _migrate_geo(self) -> None:
+        """Add geo columns to existing databases (idempotent)."""
+        conn = self.connect()
+        cursor = conn.execute("PRAGMA table_info(photos)")
+        existing_cols = {row["name"] for row in cursor.fetchall()}
+
+        if "latitude" not in existing_cols:
+            logger.info("migrating_geo_columns")
+            for stmt in MIGRATION_GEO_SQL.strip().split(";"):
+                stmt = stmt.strip()
+                if stmt:
+                    try:
+                        conn.execute(stmt)
+                    except Exception:
+                        pass
+            conn.commit()
+
+    # ── Geo methods ─────────────────────────────────────────────────────
+
+    def store_geocode(self, photo_id: int, lat: float, lon: float, display_name: str) -> None:
+        """Store geocoding results for a photo."""
+        with self.transaction() as conn:
+            conn.execute(
+                "UPDATE photos SET latitude = ?, longitude = ?, "
+                "geo_display_name = ?, geo_status = 'done' WHERE id = ?",
+                (lat, lon, display_name, photo_id),
+            )
+
+    def update_geo_status(self, photo_id: int, status: str) -> None:
+        """Update the geocoding status of a photo."""
+        with self.transaction() as conn:
+            conn.execute(
+                "UPDATE photos SET geo_status = ? WHERE id = ?", (status, photo_id)
+            )
+
+    def mark_geo_pushed(self, photo_id: int) -> None:
+        """Mark a photo's geo data as pushed to Flickr."""
+        with self.transaction() as conn:
+            conn.execute(
+                "UPDATE photos SET geo_pushed = 1 WHERE id = ?", (photo_id,)
+            )
 
     def upsert_photo(self, photo_data: dict[str, Any]) -> int:
         """Insert or update a photo record. Returns the internal photo ID."""
