@@ -53,6 +53,7 @@ def step2(verifier: str):
     flickr.flickr_oauth.oauth.client.resource_owner_key = data["key"]
     flickr.flickr_oauth.oauth.client.resource_owner_secret = data["secret"]
     flickr.flickr_oauth.verifier = clean_verifier
+    flickr.flickr_oauth.requested_permissions = "write"
 
     token = flickr.flickr_oauth.get_access_token()
     flickr.token_cache.token = token
