@@ -13,6 +13,7 @@ from typing import Any
 import structlog
 
 from flickr_autotagger.db import StateDB
+from flickr_autotagger.geocoder import clean_location_query
 
 logger = structlog.get_logger()
 
@@ -20,34 +21,16 @@ logger = structlog.get_logger()
 def _normalize_location(location: str | None) -> str | None:
     """Normalize a location string for grouping.
 
-    Strips qualifiers, extracts the core city/region name.
+    Strips qualifiers, extracts the core city/region name, and filters out non-places.
     """
-    if not location or location.lower() in ("unknown", "unknown location", ""):
+    cleaned = clean_location_query(location)
+    if not cleaned:
         return None
 
-    cleaned = location.strip()
-
-    # Remove hedging
-    for prefix in (
-        "likely ", "possibly ", "probably ", "appears to be ",
-        "somewhere in ", "best guess: ", "near ", "downtown ",
-    ):
-        if cleaned.lower().startswith(prefix):
-            cleaned = cleaned[len(prefix):]
-
-    # Remove trailing qualifiers
-    for suffix in (
-        ", exact location unknown", ", unknown city",
-        ", unknown country", " (unconfirmed)",
-    ):
-        if cleaned.lower().endswith(suffix):
-            cleaned = cleaned[: -len(suffix)]
-
-    # Take just the first major part (city name usually)
+    # Take the city + region/state
     # "Downtown Los Angeles, California, USA" -> "Los Angeles, California"
     parts = [p.strip() for p in cleaned.split(",")]
     if len(parts) >= 2:
-        # Return city + region/country
         return ", ".join(parts[:2]).strip()
     return cleaned.strip()
 
@@ -62,19 +45,20 @@ def _normalize_scene(scene: str | None) -> str | None:
     # Map to broad categories
     mappings = {
         "portrait": ["portrait", "headshot", "selfie", "face", "person"],
-        "landscape": ["landscape", "nature", "scenic", "mountain", "forest", "lake", "ocean", "beach"],
+        "landscape": ["landscape", "scenic", "mountain", "forest", "lake", "ocean", "beach"],
+        "nature": ["garden", "park", "flora", "flower", "foliage", "woodland"],
         "architecture": ["architecture", "building", "structure", "cathedral", "church", "temple", "bridge"],
-        "street": ["street", "urban street", "city street", "road"],
+        "street": ["street", "sidewalk", "crosswalk", "road", "alley"],
         "night": ["night", "nighttime", "evening", "dark", "neon"],
-        "food & drink": ["food", "restaurant", "bar", "cafe", "coffee", "drink", "dining", "pub"],
-        "urban": ["urban", "city", "cityscape", "skyline", "downtown"],
+        "food & drink": ["food", "restaurant", "bar", "cafe", "coffee", "drink", "dining", "pub", "beer", "wine"],
+        "urban": ["cityscape", "skyline", "downtown", "metropolitan", "city"],
         "still life": ["still life", "object", "product", "flat lay"],
         "macro": ["macro", "close-up", "closeup", "detail"],
         "wildlife": ["wildlife", "animal", "bird", "insect", "pet", "dog", "cat"],
-        "abstract": ["abstract", "pattern", "texture", "geometric"],
-        "event": ["event", "concert", "festival", "wedding", "celebration", "party"],
+        "abstract": ["abstract", "pattern", "texture", "geometric", "minimalist"],
+        "event": ["event", "concert", "festival", "wedding", "celebration", "party", "performance", "stage"],
         "travel": ["travel", "landmark", "monument", "tourist"],
-        "art": ["art", "mural", "graffiti", "sculpture", "gallery", "museum", "installation"],
+        "art": ["art", "mural", "graffiti", "sculpture", "gallery", "museum", "installation", "craft"],
     }
 
     for category, keywords in mappings.items():
@@ -82,7 +66,15 @@ def _normalize_scene(scene: str | None) -> str | None:
             if keyword in scene:
                 return category
 
-    return scene  # Return original if no mapping found
+    # Skip generic broad buckets that are too massive/vague for focused albums
+    generic_words = (
+        "indoor", "outdoor", "interior", "exterior", "natural", "domestic",
+        "casual", "setting", "scene", "view", "area", "environment",
+    )
+    if any(w in scene for w in generic_words):
+        return None
+
+    return scene.title()
 
 
 def build_album_plan(db: StateDB, *, min_photos: int = 3) -> list[dict[str, Any]]:

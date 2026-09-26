@@ -20,6 +20,76 @@ NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 USER_AGENT = "flickr-autotagger/0.1.0 (https://github.com/maximusmaximus/flickrtag)"
 
 
+import re
+
+# Non-geographic descriptors that shouldn't be sent to Nominatim
+NON_PLACE_TERMS = (
+    "unknown", "kitchen", "bedroom", "living room", "bathroom", "dining room",
+    "garage", "hallway", "basement", "attic", "backyard", "front yard",
+    "patio", "balcony", "porch", "studio", "office", "restaurant",
+    "bar", "cafe", "unspecified", "n/a", "none", "neighborhood",
+    "residential", "diner", "street", "sidewalk", "alley", "garden", "park",
+    "parking lot", "indoor", "interior", "exterior", "countryside", "rural",
+    "suburban", "commercial", "industrial", "store", "shop", "hotel",
+    "classroom", "gym", "rooftop", "urban", "gallery", "museum", "venue",
+    "market", "booth", "house", "apartment", "table", "desk", "room",
+)
+
+
+def clean_location_query(location_text: str | None) -> str | None:
+    """Clean location string and verify it is a genuine geographical place."""
+    if not location_text:
+        return None
+
+    # Strip parentheticals like (Burning Man), (unconfirmed), (based on license plate)
+    cleaned = re.sub(r"\(.*?\)", "", location_text).strip()
+
+    # Strip 'or similar...' clauses (e.g. 'Nevada or similar desert location')
+    if " or " in cleaned:
+        cleaned = re.split(r"\s+or\s+", cleaned)[0].strip()
+
+    loc_lower = cleaned.lower()
+    for term in NON_PLACE_TERMS:
+        if term in loc_lower:
+            # Allow famous parks even if they contain 'park'
+            if "national park" in loc_lower or "state park" in loc_lower:
+                continue
+            return None
+
+    # Remove hedging phrases
+    for prefix in (
+        "likely ", "possibly ", "probably ", "appears to be ",
+        "somewhere in ", "best guess: ", "near ", "downtown ",
+    ):
+        if loc_lower.startswith(prefix):
+            cleaned = cleaned[len(prefix):].strip()
+            loc_lower = cleaned.lower()
+
+    # Remove trailing qualifiers
+    for suffix in (
+        ", exact location unknown", ", unknown city",
+        ", unknown country", " (unconfirmed)",
+    ):
+        if loc_lower.endswith(suffix):
+            cleaned = cleaned[: -len(suffix)].strip()
+            loc_lower = cleaned.lower()
+
+    if len(cleaned) < 3:
+        return None
+
+    # Must be geographically specific: have a comma (City, State) or contain known entity
+    known_geo_indicators = (
+        ",", "usa", "united states", "california", "nevada", "oregon", "mexico",
+        "canada", "japan", "uk", "france", "italy", "spain", "germany",
+        "national park", "state park", "county", "district", "desert", "san francisco",
+        "los angeles", "portland", "chico", "ojai", "pasadena", "burning man",
+    )
+    if not any(k in loc_lower for k in known_geo_indicators):
+        return None
+
+    return cleaned
+
+
 def geocode_location(location_text: str) -> dict[str, Any] | None:
     """Geocode a location string to lat/long using OpenStreetMap Nominatim.
 
@@ -29,28 +99,8 @@ def geocode_location(location_text: str) -> dict[str, Any] | None:
     Returns:
         Dict with 'lat', 'lon', 'display_name' or None if geocoding fails.
     """
-    if not location_text or location_text.lower() in ("unknown", "unknown location", "n/a", ""):
-        return None
-
-    # Clean up common Venice.ai location guess patterns
-    cleaned = location_text.strip()
-    # Remove hedging phrases
-    for prefix in (
-        "likely ", "possibly ", "probably ", "appears to be ",
-        "somewhere in ", "best guess: ", "near ",
-    ):
-        if cleaned.lower().startswith(prefix):
-            cleaned = cleaned[len(prefix):]
-
-    # Remove trailing qualifiers
-    for suffix in (
-        ", exact location unknown", ", unknown city",
-        ", unknown country", " (unconfirmed)",
-    ):
-        if cleaned.lower().endswith(suffix):
-            cleaned = cleaned[: -len(suffix)]
-
-    if len(cleaned) < 3:
+    cleaned = clean_location_query(location_text)
+    if not cleaned:
         return None
 
     try:
@@ -89,7 +139,8 @@ def geocode_location(location_text: str) -> dict[str, Any] | None:
 def geocode_all_pending(db: StateDB) -> dict[str, int]:
     """Geocode all Venice-analyzed photos that have a location_guess.
 
-    Returns dict with counts: {'geocoded': N, 'skipped': N, 'failed': N, 'no_location': N}.
+    Uses an in-memory cache to deduplicate requests and strictly adheres
+    to Nominatim's 1 req/sec rate limit.
     """
     conn = db.connect()
     rows = conn.execute(
@@ -108,17 +159,34 @@ def geocode_all_pending(db: StateDB) -> dict[str, int]:
 
     logger.info("geocode_starting", count=len(rows))
 
+    # In-memory cache: cleaned_query -> result dict or None
+    geo_cache: dict[str, dict[str, Any] | None] = {}
+
     for i, row in enumerate(rows):
         photo_id = row["id"]
         flickr_id = row["flickr_id"]
         location_guess = row["location_guess"]
 
-        if not location_guess or location_guess.lower() in ("unknown", ""):
+        cleaned = clean_location_query(location_guess)
+        if not cleaned:
             db.update_geo_status(photo_id, "no_location")
             stats["no_location"] += 1
             continue
 
-        result = geocode_location(location_guess)
+        # Check cache first
+        if cleaned in geo_cache:
+            cached_result = geo_cache[cleaned]
+            if cached_result is None:
+                db.update_geo_status(photo_id, "failed")
+                stats["failed"] += 1
+            else:
+                db.store_geocode(photo_id, cached_result["lat"], cached_result["lon"], cached_result["display_name"])
+                stats["geocoded"] += 1
+            continue
+
+        # Query Nominatim with rate limiting
+        result = geocode_location(cleaned)
+        geo_cache[cleaned] = result
 
         if result is None:
             db.update_geo_status(photo_id, "failed")
@@ -129,18 +197,18 @@ def geocode_all_pending(db: StateDB) -> dict[str, int]:
             logger.info(
                 "geocoded",
                 flickr_id=flickr_id,
-                location=location_guess[:40],
+                location=cleaned[:40],
                 lat=f"{result['lat']:.4f}",
                 lon=f"{result['lon']:.4f}",
             )
 
-        # Progress every 50
+        # Rate limit: 1.1s per remote request to respect Nominatim policy
+        time.sleep(1.1)
+
+        # Progress log every 50
         done = stats["geocoded"] + stats["failed"] + stats["skipped"] + stats["no_location"]
         if done % 50 == 0:
-            logger.info("geocode_progress", **stats, remaining=len(rows) - done)
-
-        # Nominatim rate limit: 1 req/sec
-        time.sleep(1.1)
+            logger.info("geocode_progress", **stats, cached_places=len(geo_cache), remaining=len(rows) - done)
 
     logger.info("geocode_complete", **stats)
     return stats
