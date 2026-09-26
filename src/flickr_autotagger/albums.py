@@ -152,6 +152,7 @@ def create_albums_on_flickr(
     *,
     dry_run: bool = False,
     max_albums: int = 50,
+    max_photos_per_album: int = 100,
 ) -> dict[str, int]:
     """Create Flickr photosets from album plan.
 
@@ -160,6 +161,7 @@ def create_albums_on_flickr(
         albums: Album plan from build_album_plan().
         dry_run: If True, just log what would be created.
         max_albums: Maximum number of albums to create.
+        max_photos_per_album: Maximum photos to add per album (caps large sets).
 
     Returns:
         Dict with counts: {'created': N, 'skipped': N, 'failed': N, 'photos_added': N}.
@@ -182,7 +184,7 @@ def create_albums_on_flickr(
 
     for album in albums_to_create:
         name = album["name"]
-        photo_ids = album["photo_ids"]
+        photo_ids = album["photo_ids"][:max_photos_per_album]
 
         if name.lower() in existing_sets:
             logger.info("album_exists_skipping", name=name)
