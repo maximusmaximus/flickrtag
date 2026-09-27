@@ -122,7 +122,7 @@ def build_album_plan(db: StateDB, *, min_photos: int = 3) -> list[dict[str, Any]
         if len(photos) < min_photos:
             continue
         albums.append({
-            "name": f"📍 {location}",
+            "name": location,
             "description": f"Photos taken in or near {location}.",
             "type": "location",
             "key": location,
@@ -134,8 +134,9 @@ def build_album_plan(db: StateDB, *, min_photos: int = 3) -> list[dict[str, Any]
     for scene, photos in sorted(scene_groups.items(), key=lambda x: -len(x[1])):
         if len(photos) < min_photos:
             continue
+        scene_name = f"{scene.title()} Photography" if not scene.lower().endswith("photography") else scene.title()
         albums.append({
-            "name": f"🎨 {scene.title()}",
+            "name": scene_name,
             "description": f"A curated collection of {scene} photography.",
             "type": "scene",
             "key": scene,

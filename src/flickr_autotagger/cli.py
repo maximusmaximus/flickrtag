@@ -668,5 +668,25 @@ def auto_albums(dry_run: bool, min_photos: int, max_albums: int) -> None:
     )
 
 
+@cli.command("spatial-serve")
+@click.option("--port", default=8000, help="Port to run the 3D spatial web server on (default: 8000)")
+@click.option("--host", default="0.0.0.0", help="Host interface to bind to")
+def spatial_serve(port: int, host: str):
+    """Launch the 3D Spatial Exploration, Stitching Studio & Robinhood Chain NFT Minting Server."""
+    import uvicorn
+    import sys
+    from pathlib import Path
+
+    spatial_pkg = Path(__file__).resolve().parent / "spatial_nft"
+    sys.path.insert(0, str(spatial_pkg))
+
+    from backend.main import app
+
+    click.echo(f"\n🌐 Launching AETHER // Robinhood Chain Spatial NFT platform...")
+    click.echo(f"   Chain: Robinhood Chain (Arbitrum Orbit L2, Chain ID: 4663)")
+    click.echo(f"   URL:   http://localhost:{port}\n")
+    uvicorn.run(app, host=host, port=port)
+
+
 if __name__ == "__main__":
     cli()

@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AETHER // FLICKR 3D — Spatial Photogrammetry & Generative Minting Engine</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              cyan: '#00f0ff',
+              magenta: '#ff007a',
+              dark: '#05060b',
+              card: '#0d111c',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Three.js + OrbitControls (Import Map) -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+  <!-- Custom Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-[#05060b] text-[#f0f4f8] antialiased selection:bg-[#00f0ff] selection:text-black">
+
+  <!-- ================= TOP NAVIGATION HUD ================= -->
+  <header class="glass-nav fixed top-0 left-0 right-0 z-50 h-16 flex items-center justify-between px-6">
+    <div class="flex items-center space-x-4">
+      <div class="flex items-center space-x-2">
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-[#00f0ff] to-[#ff007a] flex items-center justify-center shadow-[0_0_15px_rgba(0,240,255,0.4)]">
+          <i data-lucide="layers" class="w-5 h-5 text-black"></i>
+        </div>
+        <div class="leading-tight">
+          <span class="font-extrabold tracking-wider text-base text-white">AETHER</span>
+          <span class="text-[#00f0ff] font-mono text-xs ml-1">// FLICKR 3D</span>
+        </div>
+      </div>
+      <!-- Telemetry Pills -->
+      <div class="hidden lg:flex items-center space-x-2 pl-4 border-l border-white/10 text-xs font-mono text-slate-400">
+        <span class="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>Robinhood Chain (ID: 4663)</span>
+        </span>
+        <span class="flex items-center space-x-1 px-2.5 py-1 rounded-full bg-white/5 border border-white/5">
+          <span id="stat-photos-pill">15,769 Photos</span>
+        </span>
+        <span class="flex items-center space-x-1 px-2.5 py-1 rounded-full bg-white/5 border border-white/5">
+          <i data-lucide="sparkles" class="w-3 h-3 text-[#00f0ff]"></i>
+          <span id="stat-tags-pill">314k Venice Tags</span>
+        </span>
+        <span class="flex items-center space-x-1 px-2.5 py-1 rounded-full bg-white/5 border border-white/5">
+          <i data-lucide="map-pin" class="w-3 h-3 text-[#ff007a]"></i>
+          <span id="stat-gps-pill">902 GPS Pins</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <nav class="flex items-center space-x-1 bg-black/40 p-1 rounded-xl border border-white/10 text-sm">
+      <button onclick="switchTab('explore')" id="tab-explore" class="nav-tab active px-4 py-1.5 rounded-lg font-medium transition flex items-center space-x-2">
+        <i data-lucide="globe" class="w-4 h-4"></i>
+        <span>3D Explore</span>
+      </button>
+      <button onclick="switchTab('studio')" id="tab-studio" class="nav-tab px-4 py-1.5 rounded-lg font-medium transition flex items-center space-x-2">
+        <i data-lucide="palette" class="w-4 h-4"></i>
+        <span>Stitching Studio</span>
+        <span id="tray-count-badge" class="hidden ml-1 px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-[#ff007a] text-white">0</span>
+      </button>
+      <button onclick="switchTab('mints')" id="tab-mints" class="nav-tab px-4 py-1.5 rounded-lg font-medium transition flex items-center space-x-2">
+        <i data-lucide="gem" class="w-4 h-4"></i>
+        <span>Recent Mints</span>
+      </button>
+      <button onclick="switchTab('admin')" id="tab-admin" class="nav-tab px-4 py-1.5 rounded-lg font-medium transition flex items-center space-x-2 text-slate-400 hover:text-white">
+        <i data-lucide="sliders" class="w-4 h-4"></i>
+        <span>Admin</span>
+      </button>
+    </nav>
+
+    <!-- Wallet Connect -->
+    <div class="flex items-center space-x-3">
+      <button id="wallet-btn" onclick="toggleWalletConnect()" class="px-4 py-1.5 rounded-lg font-mono text-xs font-semibold bg-gradient-to-r from-emerald-500/10 to-emerald-500/5 border border-emerald-500/30 hover:border-emerald-400 transition flex items-center space-x-2">
+        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+        <span id="wallet-address-display">0x9a3B...81F2 (Robinhood)</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ================= VIEW 1: 3D SPATIAL EXPLORER ================= -->
+  <main id="view-explore" class="pt-16 w-full h-screen relative">
+    <div id="viewport-container">
+      <canvas id="three-canvas"></canvas>
+
+      <!-- HUD Top Bar Controls -->
+      <div class="hud-overlay top-4 left-6 right-6 flex items-center justify-between">
+        <!-- 3D Projection Mode Switcher -->
+        <div class="hud-interactive glass-panel px-3 py-2 flex items-center space-x-2 shadow-2xl">
+          <span class="text-xs font-mono text-slate-400 uppercase tracking-widest mr-1">Projection:</span>
+          <button onclick="setSpatialMode('globe')" id="btn-mode-globe" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#00f0ff]/20 text-[#00f0ff] border border-[#00f0ff]/40 flex items-center space-x-1.5 transition">
+            <i data-lucide="globe" class="w-3.5 h-3.5"></i>
+            <span>Terra-Globe</span>
+          </button>
+          <button onclick="setSpatialMode('cosmos')" id="btn-mode-cosmos" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/5 text-slate-300 border border-white/5 hover:border-white/20 flex items-center space-x-1.5 transition">
+            <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+            <span>Semantic Cosmos</span>
+          </button>
+          <button onclick="setSpatialMode('torus')" id="btn-mode-torus" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/5 text-slate-300 border border-white/5 hover:border-white/20 flex items-center space-x-1.5 transition">
+            <i data-lucide="disc" class="w-3.5 h-3.5"></i>
+            <span>Color Torus</span>
+          </button>
+          <button onclick="setSpatialMode('helix')" id="btn-mode-helix" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/5 text-slate-300 border border-white/5 hover:border-white/20 flex items-center space-x-1.5 transition">
+            <i data-lucide="dna" class="w-3.5 h-3.5"></i>
+            <span>Chronos Helix</span>
+          </button>
+        </div>
+
+        <!-- Filter & Search Panel -->
+        <div class="hud-interactive glass-panel px-3 py-2 flex items-center space-x-3">
+          <div class="relative">
+            <i data-lucide="search" class="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400"></i>
+            <input id="spatial-search-input" onkeyup="handleSearchKey(event)" type="text" placeholder="Search mood, tag, city..." class="bg-black/50 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#00f0ff] w-48">
+          </div>
+          <!-- Quick Filter Buttons -->
+          <div class="flex items-center space-x-1 text-xs">
+            <button onclick="quickFilterTag('dreamy')" class="px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-slate-300">Dreamy</button>
+            <button onclick="quickFilterTag('street')" class="px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-slate-300">Street</button>
+            <button onclick="quickFilterTag('night')" class="px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-slate-300">Night</button>
+            <button onclick="quickFilterTag('portland')" class="px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-slate-300">Portland</button>
+          </div>
+          <button onclick="resetCamera()" class="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300" title="Reset View">
+            <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Hover Tooltip HUD Card (Positioned dynamically via JS) -->
+      <div id="photo-hover-card" class="hidden glass-panel p-3 w-72 shadow-2xl border border-white/20">
+        <div class="relative w-full h-36 rounded-lg overflow-hidden mb-2.5 bg-black">
+          <img id="hover-card-img" src="" alt="Photo Preview" class="w-full h-full object-cover">
+          <span id="hover-card-badge" class="absolute top-2 left-2 px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-black/70 text-[#00f0ff] backdrop-blur-md">GPS PIN</span>
+        </div>
+        <h4 id="hover-card-title" class="font-bold text-sm text-white truncate">Photo Title</h4>
+        <p id="hover-card-desc" class="text-xs text-slate-300 line-clamp-2 mt-1">Venice vision description...</p>
+        <div class="flex items-center justify-between mt-3 pt-2 border-t border-white/10">
+          <span id="hover-card-location" class="text-[11px] text-slate-400 truncate max-w-[140px]">Portland, OR</span>
+          <button id="hover-add-btn" class="px-2.5 py-1 rounded-md text-xs font-semibold bg-[#00f0ff] text-black hover:bg-[#00f0ff]/80 transition flex items-center space-x-1">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+            <span>Add to Studio</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Bottom Floating Curator Tray -->
+      <div id="curator-tray" class="glass-panel px-4 py-3 flex items-center space-x-4 shadow-[0_10px_40px_rgba(0,0,0,0.8)] border border-white/15">
+        <div class="flex items-center space-x-2">
+          <div class="w-3 h-3 rounded-full bg-[#ff007a] animate-ping"></div>
+          <span class="text-xs font-mono font-bold tracking-wider text-slate-300 uppercase">Curator Tray</span>
+          <span id="tray-count-text" class="text-xs font-mono text-slate-400">(0 / 6)</span>
+        </div>
+        <!-- Pinned Photos Scroll Area -->
+        <div id="tray-thumbnails" class="flex items-center space-x-2 max-w-md overflow-x-auto py-1">
+          <!-- Dynamically injected thumbnails -->
+          <div class="text-xs text-slate-500 italic px-4">Click photos in 3D to pin here for stitching...</div>
+        </div>
+        <div class="flex items-center space-x-2 pl-2 border-l border-white/10">
+          <button onclick="clearTray()" class="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white" title="Clear Tray">
+            <i data-lucide="trash-2" class="w-4 h-4"></i>
+          </button>
+          <button onclick="launchStudioWithTray()" id="btn-open-studio" class="px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-[#00f0ff] to-[#ff007a] text-black hover:opacity-90 transition shadow-[0_0_20px_rgba(0,240,255,0.4)] flex items-center space-x-1.5">
+            <i data-lucide="wand-2" class="w-4 h-4"></i>
+            <span>Open in Studio</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ================= VIEW 2: STITCHING & COMPOSITION STUDIO ================= -->
+  <section id="view-studio" class="hidden pt-20 px-8 pb-16 min-h-screen">
+    <div class="max-w-7xl mx-auto">
+      <div class="flex items-center justify-between mb-6">
+        <div>
+          <h2 class="text-3xl font-extrabold text-white flex items-center space-x-3">
+            <span class="text-gradient">Spatial Composition Studio</span>
+            <span class="text-xs font-mono px-2.5 py-1 rounded-full bg-white/10 border border-white/10 text-[#00f0ff]">Dual-Asset Output</span>
+          </h2>
+          <p class="text-sm text-slate-400 mt-1">Stitch multi-photo layers, synthesize harmonic Venice tags, and render 4K imagery + 10s looping video for minting.</p>
+        </div>
+        <div class="flex items-center space-x-3">
+          <button onclick="switchTab('explore')" class="px-4 py-2 rounded-xl text-xs font-semibold bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 flex items-center space-x-2">
+            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+            <span>Pick More Photos</span>
+          </button>
+          <button onclick="openMintModal()" class="px-6 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-r from-[#00f0ff] to-[#ff007a] text-black hover:opacity-95 shadow-[0_0_25px_rgba(0,240,255,0.4)] flex items-center space-x-2">
+            <i data-lucide="sparkles" class="w-4 h-4"></i>
+            <span>Save & Mint NFT</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Main Studio Layout: Canvas on Left, Controls & Video on Right -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <!-- Canvas Viewport (7 Cols) -->
+        <div class="lg:col-span-7 flex flex-col space-y-4">
+          <div class="glass-panel p-4 rounded-2xl flex flex-col items-center justify-center relative min-h-[500px] overflow-hidden">
+            <canvas id="studio-canvas" width="800" height="800" class="w-full max-w-[560px] aspect-square rounded-xl shadow-2xl border border-white/10 object-contain bg-black"></canvas>
+            <!-- Canvas HUD Overlay Indicators -->
+            <div class="absolute top-6 left-6 flex items-center space-x-2">
+              <span id="canvas-algo-badge" class="px-2.5 py-1 rounded-md text-[11px] font-mono font-bold bg-black/70 text-[#00f0ff] border border-white/10">POISSON GRADIENT BLEND</span>
+              <span id="canvas-res-badge" class="px-2.5 py-1 rounded-md text-[11px] font-mono bg-black/70 text-slate-300 border border-white/10">4096 x 4096 MASTER</span>
+            </div>
+          </div>
+
+          <!-- Stitching Mode Selector -->
+          <div class="glass-panel p-4 rounded-xl flex items-center justify-between">
+            <span class="text-xs font-mono text-slate-400 uppercase tracking-wider">Stitch Algorithm:</span>
+            <div class="flex items-center space-x-2">
+              <button onclick="setStitchAlgorithm('poisson')" id="algo-poisson" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#00f0ff]/20 text-[#00f0ff] border border-[#00f0ff]/40">Poisson Gradient</button>
+              <button onclick="setStitchAlgorithm('voronoi')" id="algo-voronoi" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/5 text-slate-300 border border-white/5 hover:border-white/20">Voronoi Mosaic</button>
+              <button onclick="setStitchAlgorithm('exposure')" id="algo-exposure" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/5 text-slate-300 border border-white/5 hover:border-white/20">Depth Multi-Exposure</button>
+              <button onclick="setStitchAlgorithm('weave')" id="algo-weave" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/5 text-slate-300 border border-white/5 hover:border-white/20">Algorithmic Weave</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sidebar Controls & Video Generator (5 Cols) -->
+        <div class="lg:col-span-5 flex flex-col space-y-6">
+          <!-- Video Preview & Generator Card -->
+          <div class="glass-panel p-5 rounded-2xl border border-white/10">
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center space-x-2">
+                <i data-lucide="video" class="w-4 h-4 text-[#ff007a]"></i>
+                <h3 class="text-sm font-bold text-white uppercase tracking-wider">Cinematic Video Loop (10s)</h3>
+              </div>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-white/10 text-slate-300">4K Ken Burns Parallax</span>
+            </div>
+            <!-- Video Player Preview Container -->
+            <div class="w-full aspect-video rounded-xl bg-black/80 border border-white/10 overflow-hidden relative flex items-center justify-center">
+              <video id="studio-video-player" loop autoplay muted playsinline class="w-full h-full object-cover hidden"></video>
+              <div id="video-placeholder" class="text-center p-6">
+                <i data-lucide="film" class="w-8 h-8 text-slate-600 mx-auto mb-2 animate-bounce"></i>
+                <p class="text-xs text-slate-400">Click below to synthesize the 10-second cinematic video loop</p>
+              </div>
+              <div id="video-generating-spinner" class="hidden absolute inset-0 bg-black/80 flex flex-col items-center justify-center space-y-3">
+                <div class="w-8 h-8 border-2 border-[#00f0ff] border-t-transparent rounded-full animate-spin"></div>
+                <span class="text-xs font-mono text-[#00f0ff]">Rendering 10s MP4 Loop...</span>
+              </div>
+            </div>
+            <button onclick="generateCinematicVideo()" id="btn-gen-video" class="w-full mt-3 py-2 rounded-xl text-xs font-bold bg-white/10 hover:bg-white/20 text-[#00f0ff] border border-[#00f0ff]/30 transition flex items-center justify-center space-x-2">
+              <i data-lucide="play" class="w-3.5 h-3.5"></i>
+              <span>Generate / Re-render Video Loop</span>
+            </button>
+          </div>
+
+          <!-- Creative Sliders & Color Grading -->
+          <div class="glass-panel p-5 rounded-2xl border border-white/10 space-y-4">
+            <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-2">
+              <i data-lucide="sliders" class="w-4 h-4 text-[#00f0ff]"></i>
+              <span>Canvas Tone & Harmonics</span>
+            </h3>
+            <!-- Sliders -->
+            <div class="space-y-3 text-xs">
+              <div>
+                <div class="flex justify-between text-slate-300 mb-1">
+                  <span>Layer Opacity / Seam Feather</span>
+                  <span id="val-feather">75%</span>
+                </div>
+                <input id="slider-feather" oninput="updateStudioSettings()" type="range" min="10" max="100" value="75" class="w-full accent-[#00f0ff]">
+              </div>
+              <div>
+                <div class="flex justify-between text-slate-300 mb-1">
+                  <span>Chromatic Vignette</span>
+                  <span id="val-vignette">40%</span>
+                </div>
+                <input id="slider-vignette" oninput="updateStudioSettings()" type="range" min="0" max="100" value="40" class="w-full accent-[#ff007a]">
+              </div>
+              <div>
+                <div class="flex justify-between text-slate-300 mb-1">
+                  <span>Film Grain Texture</span>
+                  <span id="val-grain">25%</span>
+                </div>
+                <input id="slider-grain" oninput="updateStudioSettings()" type="range" min="0" max="100" value="25" class="w-full accent-white">
+              </div>
+            </div>
+          </div>
+
+          <!-- Contributing Photos Lineage Cocktail -->
+          <div class="glass-panel p-5 rounded-2xl border border-white/10">
+            <h3 class="text-sm font-bold text-white uppercase tracking-wider mb-3 flex items-center justify-between">
+              <span class="flex items-center space-x-2">
+                <i data-lucide="git-merge" class="w-4 h-4 text-[#ff007a]"></i>
+                <span>Ingredient Lineage</span>
+              </span>
+              <span id="studio-ingredient-count" class="text-xs font-mono text-slate-400">0 Photos</span>
+            </h3>
+            <div id="studio-ingredients-list" class="space-y-2 max-h-48 overflow-y-auto pr-1">
+              <!-- Dynamically populated ingredients -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= VIEW 3: PUBLIC RECENT MINTS ================= -->
+  <section id="view-mints" class="hidden pt-20 px-8 pb-16 min-h-screen">
+    <div class="max-w-7xl mx-auto">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+        <div>
+          <h2 class="text-3xl font-extrabold text-white flex items-center space-x-3">
+            <span class="text-gradient">Public Live Mints Showcase</span>
+            <span class="text-xs font-mono px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">On-Chain Verified</span>
+          </h2>
+          <p class="text-sm text-slate-400 mt-1">Explore recently minted compositions, inspect deep photo lineages, and preview animated 4K video loops.</p>
+        </div>
+        <div class="flex items-center space-x-3">
+          <button onclick="fetchRecentMints()" class="px-4 py-2 rounded-xl text-xs font-semibold bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 flex items-center space-x-2">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+            <span>Refresh Feed</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Mints Grid -->
+      <div id="mints-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        <!-- Dynamically injected mint cards -->
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= VIEW 4: ADMIN DASHBOARD ================= -->
+  <section id="view-admin" class="hidden pt-20 px-8 pb-16 min-h-screen">
+    <div class="max-w-7xl mx-auto space-y-8">
+      <div>
+        <h2 class="text-3xl font-extrabold text-white flex items-center space-x-3">
+          <span class="text-gold-gradient">Curator & Admin Console</span>
+          <span class="text-xs font-mono px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">Operator Tier</span>
+        </h2>
+        <p class="text-sm text-slate-400 mt-1">Manage minting pool categories, adjust supply & pricing, monitor Venice Vision ingestion, and audit treasury revenue.</p>
+      </div>
+
+      <!-- Top Metric Cards -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-5">
+        <div class="glass-panel p-5 rounded-xl border border-white/10">
+          <span class="text-xs font-mono text-slate-400 uppercase">Total Cataloged Photos</span>
+          <h3 id="admin-stat-photos" class="text-2xl font-black text-white mt-1">15,769</h3>
+          <span class="text-[11px] text-emerald-400 flex items-center space-x-1 mt-1">
+            <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i>
+            <span>100% Venice Analyzed</span>
+          </span>
+        </div>
+        <div class="glass-panel p-5 rounded-xl border border-white/10">
+          <span class="text-xs font-mono text-slate-400 uppercase">Total AI Tags</span>
+          <h3 id="admin-stat-tags" class="text-2xl font-black text-[#00f0ff] mt-1">314,294</h3>
+          <span class="text-[11px] text-slate-400 mt-1">50,875 unique concepts</span>
+        </div>
+        <div class="glass-panel p-5 rounded-xl border border-white/10">
+          <span class="text-xs font-mono text-slate-400 uppercase">Total Compositions Minted</span>
+          <h3 id="admin-stat-mints" class="text-2xl font-black text-[#ff007a] mt-1">0</h3>
+          <span class="text-[11px] text-slate-400 mt-1">Across 5 active pools</span>
+        </div>
+        <div class="glass-panel p-5 rounded-xl border border-white/10">
+          <span class="text-xs font-mono text-slate-400 uppercase">Gross Volume</span>
+          <h3 id="admin-stat-volume" class="text-2xl font-black text-amber-400 mt-1">0.00 ETH</h3>
+          <span class="text-[11px] text-slate-400 mt-1">Robinhood Chain (ID: 4663) Treasury</span>
+        </div>
+      </div>
+
+      <!-- Pool Categories Table & Creator -->
+      <div class="glass-panel p-6 rounded-2xl border border-white/10">
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h3 class="text-lg font-bold text-white">Minting Pools & Supply Categories</h3>
+            <p class="text-xs text-slate-400">Configure prices, supply caps, categories, and activation status.</p>
+          </div>
+          <button onclick="openCreatePoolModal()" class="px-4 py-2 rounded-xl text-xs font-bold bg-[#00f0ff] text-black hover:bg-[#00f0ff]/80 transition flex items-center space-x-2">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            <span>Create New Pool</span>
+          </button>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead>
+              <tr class="border-b border-white/10 text-slate-400 font-mono">
+                <th class="py-3 px-4">POOL TITLE</th>
+                <th class="py-3 px-4">CATEGORY</th>
+                <th class="py-3 px-4">PRICE</th>
+                <th class="py-3 px-4">MINTED / SUPPLY</th>
+                <th class="py-3 px-4">MAX PER MINT</th>
+                <th class="py-3 px-4">STATUS</th>
+                <th class="py-3 px-4 text-right">ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody id="admin-pools-table-body" class="divide-y divide-white/5">
+              <!-- Dynamically populated pool rows -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Ingestion & Pipeline Watchdog -->
+      <div class="glass-panel p-6 rounded-2xl border border-white/10">
+        <h3 class="text-lg font-bold text-white mb-2 flex items-center space-x-2">
+          <i data-lucide="activity" class="w-5 h-5 text-emerald-400"></i>
+          <span>Flickr Pipeline & State.db Telemetry</span>
+        </h3>
+        <p class="text-xs text-slate-400 mb-4">Live link to SQLite <code class="text-[#00f0ff]">state.db</code> and autonomous cron workers.</p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono">
+          <div class="p-3 rounded-lg bg-black/40 border border-white/5">
+            <span class="text-slate-400">Venice Vision Pipeline:</span>
+            <span class="text-emerald-400 font-bold block mt-1">🟢 15,769 / 15,769 (Complete)</span>
+          </div>
+          <div class="p-3 rounded-lg bg-black/40 border border-white/5">
+            <span class="text-slate-400">Flickr Sync Status:</span>
+            <span class="text-emerald-400 font-bold block mt-1">🟢 Synced with Live Flickr API</span>
+          </div>
+          <div class="p-3 rounded-lg bg-black/40 border border-white/5">
+            <span class="text-slate-400">Geospatial Enriched:</span>
+            <span class="text-[#00f0ff] font-bold block mt-1">902 Exact Coordinates + 14k Inferred</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= MODALS ================= -->
+
+  <!-- Minting Modal -->
+  <div id="modal-mint" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="glass-panel w-full max-w-lg p-6 rounded-2xl border border-white/20 shadow-2xl relative">
+      <button onclick="closeMintModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+
+      <h3 class="text-xl font-bold text-white flex items-center space-x-2">
+        <i data-lucide="sparkles" class="w-5 h-5 text-[#00f0ff]"></i>
+        <span>Mint Composition as NFT</span>
+      </h3>
+      <p class="text-xs text-slate-400 mt-1">Choose a category pool to mint your verified dual-asset composition onto Robinhood Chain (Arbitrum Orbit L2, Chain ID: 4663).</p>
+
+      <div class="mt-4 space-y-4">
+        <!-- Pool Selector -->
+        <div>
+          <label class="block text-xs font-mono text-slate-300 uppercase mb-1.5">Select Minting Pool:</label>
+          <select id="mint-pool-select" onchange="handleMintPoolChange()" class="w-full bg-black/60 border border-white/20 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-[#00f0ff]">
+            <!-- Injected pool options -->
+          </select>
+        </div>
+
+        <!-- Pool Summary Box -->
+        <div id="mint-pool-summary" class="p-4 rounded-xl bg-white/5 border border-white/10 text-xs space-y-1.5 font-mono">
+          <div class="flex justify-between">
+            <span class="text-slate-400">Category:</span>
+            <span id="summary-category" class="text-[#00f0ff]">Geospatial</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-400">Price per Mint:</span>
+            <span id="summary-price" class="text-white font-bold">0.02 ETH (~$48.50)</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-400">Pool Availability:</span>
+            <span id="summary-remaining" class="text-emerald-400">50 / 50 Available</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-400">Max per Wallet:</span>
+            <span id="summary-max-wallet" class="text-slate-300">2</span>
+          </div>
+        </div>
+
+        <!-- Dual Asset Verification Badge -->
+        <div class="flex items-center space-x-3 p-3 rounded-xl bg-[#00f0ff]/5 border border-[#00f0ff]/20 text-xs">
+          <i data-lucide="check-circle" class="w-5 h-5 text-[#00f0ff]"></i>
+          <div>
+            <span class="font-bold text-white block">Dual-Asset Package Ready</span>
+            <span class="text-slate-400 text-[11px]">Includes 4K master canvas + 10s animated video loop + lineage tree.</span>
+          </div>
+        </div>
+
+        <!-- Mint Action Button -->
+        <button id="btn-execute-mint" onclick="executeMint()" class="w-full py-3 rounded-xl text-sm font-bold bg-gradient-to-r from-[#00f0ff] to-[#ff007a] text-black hover:opacity-95 shadow-[0_0_20px_rgba(0,240,255,0.4)] flex items-center justify-center space-x-2">
+          <i data-lucide="zap" class="w-4 h-4"></i>
+          <span>Confirm & Mint (0.02 ETH)</span>
+        </button>
+
+        <div id="mint-progress-box" class="hidden text-center py-2 space-y-2">
+          <div class="w-6 h-6 border-2 border-[#00f0ff] border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <span class="text-xs font-mono text-[#00f0ff]">Broadcasting to Robinhood Chain Sequencer (Block #1849205)...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Social Share Modal -->
+  <div id="modal-share" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="glass-panel w-full max-w-md p-6 rounded-2xl border border-white/20 shadow-2xl relative">
+      <button onclick="closeShareModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+      <h3 class="text-xl font-bold text-white flex items-center space-x-2">
+        <i data-lucide="share-2" class="w-5 h-5 text-[#ff007a]"></i>
+        <span>Share Composition</span>
+      </h3>
+      <p class="text-xs text-slate-400 mt-1">Broadcast your minted creation across social networks with rich OpenGraph video cards.</p>
+
+      <div class="mt-4 space-y-4">
+        <div class="rounded-xl overflow-hidden border border-white/10 aspect-video bg-black">
+          <img id="share-preview-img" src="" alt="Share Preview" class="w-full h-full object-cover">
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <input id="share-link-input" type="text" readonly class="w-full bg-black/60 border border-white/20 rounded-xl px-3 py-2 text-xs font-mono text-slate-300 focus:outline-none">
+          <button onclick="copyShareLink()" class="px-4 py-2 rounded-xl text-xs font-bold bg-white/10 hover:bg-white/20 text-[#00f0ff] border border-[#00f0ff]/30">Copy</button>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 pt-2">
+          <a id="share-twitter-btn" href="#" target="_blank" class="py-2.5 rounded-xl text-xs font-bold bg-[#1DA1F2]/20 hover:bg-[#1DA1F2]/30 text-[#1DA1F2] border border-[#1DA1F2]/40 flex items-center justify-center space-x-2">
+            <i data-lucide="twitter" class="w-4 h-4"></i>
+            <span>Post on X</span>
+          </a>
+          <a id="share-telegram-btn" href="#" target="_blank" class="py-2.5 rounded-xl text-xs font-bold bg-[#229ED9]/20 hover:bg-[#229ED9]/30 text-[#229ED9] border border-[#229ED9]/40 flex items-center justify-center space-x-2">
+            <i data-lucide="send" class="w-4 h-4"></i>
+            <span>Telegram</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Photo Inspector Modal -->
+  <div id="modal-photo-detail" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="glass-panel w-full max-w-2xl p-6 rounded-2xl border border-white/20 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+      <button onclick="closePhotoModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="space-y-3">
+          <div class="w-full aspect-square rounded-xl overflow-hidden bg-black border border-white/10">
+            <img id="detail-modal-img" src="" alt="Detail Preview" class="w-full h-full object-cover">
+          </div>
+          <button id="detail-add-tray-btn" class="w-full py-2.5 rounded-xl text-xs font-bold bg-[#00f0ff] text-black hover:bg-[#00f0ff]/80 transition flex items-center justify-center space-x-2">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            <span>Add Photo to Curator Tray</span>
+          </button>
+        </div>
+        <div class="space-y-4 text-xs">
+          <div>
+            <span class="text-slate-400 font-mono text-[10px] uppercase block">Venice AI Vision Title</span>
+            <h4 id="detail-modal-title" class="text-base font-bold text-white mt-0.5">Photo Title</h4>
+            <span id="detail-modal-raw" class="text-slate-500 font-mono text-[11px] block">Original: PA090083</span>
+          </div>
+          <div>
+            <span class="text-slate-400 font-mono text-[10px] uppercase block">Detailed Vision Description</span>
+            <p id="detail-modal-desc" class="text-slate-300 mt-1 leading-relaxed">Full vision analysis...</p>
+          </div>
+          <div class="grid grid-cols-2 gap-2 font-mono">
+            <div class="p-2 rounded bg-white/5 border border-white/5">
+              <span class="text-slate-400 block text-[10px]">MOOD</span>
+              <span id="detail-modal-mood" class="text-[#ff007a] font-semibold">Dreamy</span>
+            </div>
+            <div class="p-2 rounded bg-white/5 border border-white/5">
+              <span class="text-slate-400 block text-[10px]">TECHNIQUE</span>
+              <span id="detail-modal-technique" class="text-[#00f0ff] font-semibold">Overexposure</span>
+            </div>
+          </div>
+          <div>
+            <span class="text-slate-400 font-mono text-[10px] uppercase block">Top Predicted Tags</span>
+            <div id="detail-modal-tags" class="flex flex-wrap gap-1.5 mt-1.5">
+              <!-- Tags -->
+            </div>
+          </div>
+          <div class="pt-2 border-t border-white/10 flex items-center justify-between text-slate-400 font-mono">
+            <span id="detail-modal-location">Portland, OR</span>
+            <a id="detail-modal-flickr-link" href="#" target="_blank" class="text-[#00f0ff] hover:underline flex items-center space-x-1">
+              <span>View on Flickr</span>
+              <i data-lucide="external-link" class="w-3 h-3"></i>
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Pool Modal (Admin) -->
+  <div id="modal-create-pool" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="glass-panel w-full max-w-md p-6 rounded-2xl border border-white/20 shadow-2xl relative">
+      <button onclick="closeCreatePoolModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+      <h3 class="text-xl font-bold text-white flex items-center space-x-2">
+        <i data-lucide="folder-plus" class="w-5 h-5 text-[#00f0ff]"></i>
+        <span>Create Minting Pool Category</span>
+      </h3>
+      <form onsubmit="handleCreatePoolSubmit(event)" class="mt-4 space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-300 font-mono mb-1">POOL TITLE</label>
+          <input id="pool-in-title" required type="text" placeholder="e.g. Pacific Coast Noir" class="w-full bg-black/60 border border-white/20 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#00f0ff]">
+        </div>
+        <div>
+          <label class="block text-slate-300 font-mono mb-1">SLUG</label>
+          <input id="pool-in-slug" required type="text" placeholder="e.g. pacific-coast-noir" class="w-full bg-black/60 border border-white/20 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#00f0ff]">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-300 font-mono mb-1">CATEGORY</label>
+            <input id="pool-in-category" required type="text" placeholder="Geospatial" class="w-full bg-black/60 border border-white/20 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#00f0ff]">
+          </div>
+          <div>
+            <label class="block text-slate-300 font-mono mb-1">PRICE (ETH)</label>
+            <input id="pool-in-price" required type="number" step="0.001" placeholder="0.015" class="w-full bg-black/60 border border-white/20 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#00f0ff]">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-300 font-mono mb-1">MAX SUPPLY</label>
+            <input id="pool-in-supply" required type="number" placeholder="50" class="w-full bg-black/60 border border-white/20 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#00f0ff]">
+          </div>
+          <div>
+            <label class="block text-slate-300 font-mono mb-1">MAX PER MINT</label>
+            <input id="pool-in-maxmint" required type="number" placeholder="2" class="w-full bg-black/60 border border-white/20 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#00f0ff]">
+          </div>
+        </div>
+        <div>
+          <label class="block text-slate-300 font-mono mb-1">DESCRIPTION</label>
+          <textarea id="pool-in-desc" rows="2" placeholder="Curation notes..." class="w-full bg-black/60 border border-white/20 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-[#00f0ff]"></textarea>
+        </div>
+        <button type="submit" class="w-full mt-3 py-2.5 rounded-xl text-xs font-bold bg-[#00f0ff] text-black hover:bg-[#00f0ff]/80 transition">Create Pool</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Application Main JavaScript -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>

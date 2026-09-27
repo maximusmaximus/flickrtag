@@ -48,6 +48,10 @@ flowchart LR
 ## Features
 
 - 🔬 **Venice.ai Vision Analysis** — Rich structured metadata per photo: title suggestions, 2-3 sentence descriptions, 10-20 tags, scene type, mood, technique, color palette, location guesses, time of day
+- 🌐 **3D Spatial Exploration Engine** — Four real-time WebGL/Three.js spatial modes: Terra-Globe (GPS), Semantic Cosmos (AI tags & mood), Chromatic Torus (color spectrum), and Chronos Helix (timeline spiral)
+- 🎨 **Multi-Photo Stitching Studio** — Interactive composition canvas with Poisson gradient, Voronoi mosaic, depth multi-exposure, and algorithmic weave blending
+- 🎬 **10-Second Cinematic Video Generator** — Procedural in-browser 4K Ken Burns drift and ambient particle loop rendering
+- 🏹 **Robinhood Chain (Chain ID: 4663) NFT Minting** — Direct EVM smart contract minting on Robinhood's Arbitrum Orbit L2 with category pools, automated lineage provenance, and EIP-2981 royalties
 - 📍 **Auto-Geolocation** — Converts AI location guesses to lat/long coordinates and pushes to Flickr. Your photos appear on Flickr's world map!
 - 📁 **Smart Auto-Albums** — Automatically creates Flickr photosets grouped by location and scene type
 - 🔄 **Bidirectional Sync** — Push tags, descriptions, titles, and geolocation back to Flickr
@@ -143,6 +147,36 @@ Each photo gets a rich structured analysis:
   "colors": ["Blue", "White", "Beige"]
 }
 ```
+
+---
+
+## 🌐 3D Spatial Exploration & Robinhood Chain Minting
+
+Launch the immersive 3D photogrammetry, stitching studio, and Robinhood Chain NFT minting engine:
+
+```bash
+# Launch the 3D spatial server
+flickr-autotagger spatial-serve --port 8000
+```
+
+Open `http://localhost:8000` to access:
+- **3D Spatial Navigator**: Explore 15,769 photographs across 4 dynamic projection geometries:
+  - 🌍 **Terra-Globe**: 3D globe with 902+ exact GPS pins across the Pacific Northwest and California
+  - 🌌 **Semantic Cosmos**: 3D starfield cluster space positioned by 50,000+ AI tags and moods
+  - 🍩 **Chromatic Torus**: RGB/HSV color donut wheel sorted by dominant color hex
+  - 🧬 **Chronos Helix**: Ascending time spiral (2016–2026)
+- **Stitching Studio**: Multi-photo composition canvas with Poisson gradient, Voronoi mosaic, depth multi-exposure, and algorithmic weave blending. Includes client-side 10-second 4K looping video generation.
+- **Robinhood Chain (Arbitrum Orbit L2) Minting**:
+  - **Network Name**: Robinhood Chain
+  - **Chain ID**: `4663` (`0x1237`)
+  - **Currency**: `ETH`
+  - **RPC URL**: `https://rpc.mainnet.chain.robinhood.com`
+  - **Block Explorer**: `https://explorer.chain.robinhood.com`
+  - **Smart Contract**: [`contracts/RobinhoodCompositeNFT.sol`](contracts/RobinhoodCompositeNFT.sol) (ERC-721A + EIP-2981)
+- **Curator Admin Console**: Manage category pools, adjust minting prices and supply quotas, monitor `state.db` pipeline telemetry, and track treasury volume.
+- **Public Live Mints**: Feed of recent on-chain mints with dual-asset (image + video) previews and parent photo lineage trees.
+
+---
 
 ## Configuration
 
