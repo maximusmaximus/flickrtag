@@ -13,12 +13,20 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from backend.spatial_math import (
-    to_globe_coords,
-    to_semantic_cosmos_coords,
-    to_color_torus_coords,
-    to_chronos_helix_coords,
-)
+try:
+    from .spatial_math import (
+        to_globe_coords,
+        to_semantic_cosmos_coords,
+        to_color_torus_coords,
+        to_chronos_helix_coords,
+    )
+except (ImportError, ValueError):
+    from backend.spatial_math import (
+        to_globe_coords,
+        to_semantic_cosmos_coords,
+        to_color_torus_coords,
+        to_chronos_helix_coords,
+    )
 
 # Resolve state.db path dynamically for both WSL and native Windows
 WSL_STATE_DB = Path("/root/.flickr-autotagger/state.db")
@@ -53,8 +61,10 @@ def get_state_db_conn() -> sqlite3.Connection:
 
 def get_aether_db_conn() -> sqlite3.Connection:
     """Open read/write connection to Aether platform database."""
-    conn = sqlite3.connect(str(AETHER_DB_PATH))
+    conn = sqlite3.connect(str(AETHER_DB_PATH), timeout=30.0)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout=15000;")
     return conn
 
 
@@ -475,181 +485,188 @@ def get_pools() -> List[Dict[str, Any]]:
 def create_or_update_pool(pool_data: Dict[str, Any]) -> Dict[str, Any]:
     """Create or update a pool category."""
     conn = get_aether_db_conn()
-    cur = conn.cursor()
+    try:
+        cur = conn.cursor()
 
-    pool_id = pool_data.get("id")
-    slug = pool_data.get("slug")
-    title = pool_data.get("title")
-    desc = pool_data.get("description", "")
-    category = pool_data.get("category", "General")
-    price = float(pool_data.get("price_eth", 0.01))
-    max_supply = int(pool_data.get("max_supply", 100))
-    max_per_mint = int(pool_data.get("max_per_mint", 3))
-    is_active = 1 if pool_data.get("is_active", True) else 0
+        pool_id = pool_data.get("id")
+        slug = pool_data.get("slug")
+        title = pool_data.get("title")
+        desc = pool_data.get("description", "")
+        category = pool_data.get("category", "General")
+        price = float(pool_data.get("price_eth", 0.01))
+        max_supply = int(pool_data.get("max_supply", 100))
+        max_per_mint = int(pool_data.get("max_per_mint", 3))
+        is_active = 1 if pool_data.get("is_active", True) else 0
 
-    if pool_id:
-        cur.execute(
-            """
-            UPDATE pools
-            SET title = ?, description = ?, category = ?, price_eth = ?,
-                max_supply = ?, max_per_mint = ?, is_active = ?
-            WHERE id = ?;
-            """,
-            (title, desc, category, price, max_supply, max_per_mint, is_active, pool_id),
-        )
-    else:
-        now = time.time()
-        cur.execute(
-            """
-            INSERT INTO pools (slug, title, description, category, price_eth, max_supply, minted_count, max_per_mint, is_active, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?);
-            """,
-            (slug, title, desc, category, price, max_supply, max_per_mint, is_active, now),
-        )
-        pool_id = cur.lastrowid
+        if not pool_id and slug:
+            cur.execute("SELECT id FROM pools WHERE slug = ?;", (slug,))
+            existing = cur.fetchone()
+            if existing:
+                pool_id = existing[0]
 
-    conn.commit()
-    cur.execute("SELECT * FROM pools WHERE id = ?;", (pool_id,))
-    row = dict(cur.fetchone())
-    conn.close()
-    return row
+        if pool_id:
+            cur.execute(
+                """
+                UPDATE pools
+                SET title = ?, description = ?, category = ?, price_eth = ?,
+                    max_supply = ?, max_per_mint = ?, is_active = ?
+                WHERE id = ?;
+                """,
+                (title, desc, category, price, max_supply, max_per_mint, is_active, pool_id),
+            )
+        else:
+            now = time.time()
+            cur.execute(
+                """
+                INSERT INTO pools (slug, title, description, category, price_eth, max_supply, minted_count, max_per_mint, is_active, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?);
+                """,
+                (slug, title, desc, category, price, max_supply, max_per_mint, is_active, now),
+            )
+            pool_id = cur.lastrowid
+
+        conn.commit()
+        cur.execute("SELECT * FROM pools WHERE id = ?;", (pool_id,))
+        row = dict(cur.fetchone())
+        return row
+    finally:
+        conn.close()
 
 
 def save_composition(comp: Dict[str, Any]) -> Dict[str, Any]:
     """Persist a new user composition recipe."""
     conn = get_aether_db_conn()
-    cur = conn.cursor()
+    try:
+        cur = conn.cursor()
 
-    cid = comp.get("id") or f"comp_{int(time.time() * 1000)}"
-    title = comp.get("title", "Untitled Spatial Synthesis")
-    desc = comp.get("description", "")
-    creator = comp.get("creator_wallet", "0x0000000000000000000000000000000000000000")
-    photos_json = json.dumps(comp.get("contributing_photos", []))
-    stitch_mode = comp.get("stitch_mode", "poisson")
-    blend_json = json.dumps(comp.get("blend_settings", {}))
-    img_url = comp.get("image_url", "")
-    vid_url = comp.get("video_url", "")
-    tags_json = json.dumps(comp.get("tags_cocktail", []))
-    geo_json = json.dumps(comp.get("geo_centroid", {}))
-    now = time.time()
+        cid = comp.get("id") or f"comp_{int(time.time() * 1000)}"
+        title = comp.get("title", "Untitled Spatial Synthesis")
+        desc = comp.get("description", "")
+        creator = comp.get("creator_wallet", "0x0000000000000000000000000000000000000000")
+        photos_json = json.dumps(comp.get("contributing_photos", []))
+        stitch_mode = comp.get("stitch_mode", "poisson")
+        blend_json = json.dumps(comp.get("blend_settings", {}))
+        img_url = comp.get("image_url", "")
+        vid_url = comp.get("video_url", "")
+        tags_json = json.dumps(comp.get("tags_cocktail", []))
+        geo_json = json.dumps(comp.get("geo_centroid", {}))
+        now = time.time()
 
-    cur.execute(
-        """
-        INSERT OR REPLACE INTO compositions
-        (id, title, description, creator_wallet, contributing_photos, stitch_mode, blend_settings, image_url, video_url, tags_cocktail, geo_centroid, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-        """,
-        (cid, title, desc, creator, photos_json, stitch_mode, blend_json, img_url, vid_url, tags_json, geo_json, now),
-    )
-    conn.commit()
-    conn.close()
-
-    comp["id"] = cid
-    return comp
+        cur.execute(
+            """
+            INSERT OR REPLACE INTO compositions
+            (id, title, description, creator_wallet, contributing_photos, stitch_mode, blend_settings, image_url, video_url, tags_cocktail, geo_centroid, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (cid, title, desc, creator, photos_json, stitch_mode, blend_json, img_url, vid_url, tags_json, geo_json, now),
+        )
+        conn.commit()
+        comp["id"] = cid
+        return comp
+    finally:
+        conn.close()
 
 
 def mint_nft(mint_data: Dict[str, Any]) -> Dict[str, Any]:
     """Mint a composition into an active pool, decrementing supply and creating the NFT record."""
     conn = get_aether_db_conn()
-    cur = conn.cursor()
+    try:
+        cur = conn.cursor()
 
-    pool_id = int(mint_data["pool_id"])
-    comp_id = mint_data["composition_id"]
-    wallet = mint_data.get("minter_wallet", "0x9a3B...81F2")
+        pool_id = int(mint_data["pool_id"])
+        comp_id = mint_data["composition_id"]
+        wallet = mint_data.get("minter_wallet", "0x9a3B...81F2")
 
-    # Verify pool supply
-    cur.execute("SELECT * FROM pools WHERE id = ? AND is_active = 1;", (pool_id,))
-    pool = cur.fetchone()
-    if not pool:
-        conn.close()
-        raise ValueError("Selected pool is inactive or does not exist.")
+        # Verify pool supply
+        cur.execute("SELECT * FROM pools WHERE id = ? AND is_active = 1;", (pool_id,))
+        pool = cur.fetchone()
+        if not pool:
+            raise ValueError("Selected pool is inactive or does not exist.")
 
-    if pool["minted_count"] >= pool["max_supply"]:
-        conn.close()
-        raise ValueError(f"Pool '{pool['title']}' is completely minted out ({pool['max_supply']}/{pool['max_supply']}).")
+        if pool["minted_count"] >= pool["max_supply"]:
+            raise ValueError(f"Pool '{pool['title']}' is completely minted out ({pool['max_supply']}/{pool['max_supply']}).")
 
-    # Generate next sequential token ID
-    cur.execute("SELECT COALESCE(MAX(token_id), 1000) + 1 FROM mints;")
-    token_id = cur.fetchone()[0]
+        # Generate next sequential token ID
+        cur.execute("SELECT COALESCE(MAX(token_id), 1000) + 1 FROM mints;")
+        token_id = cur.fetchone()[0]
 
-    # Fetch composition
-    cur.execute("SELECT * FROM compositions WHERE id = ?;", (comp_id,))
-    comp_row = cur.fetchone()
-    if not comp_row:
-        conn.close()
-        raise ValueError("Composition not found.")
+        # Fetch composition
+        cur.execute("SELECT * FROM compositions WHERE id = ?;", (comp_id,))
+        comp_row = cur.fetchone()
+        if not comp_row:
+            raise ValueError("Composition not found.")
 
-    comp = dict(comp_row)
-    contributing_photos = json.loads(comp["contributing_photos"])
-    tags_cocktail = json.loads(comp["tags_cocktail"]) if comp["tags_cocktail"] else []
-    geo_centroid = json.loads(comp["geo_centroid"]) if comp["geo_centroid"] else {}
+        comp = dict(comp_row)
+        contributing_photos = json.loads(comp["contributing_photos"])
+        tags_cocktail = json.loads(comp["tags_cocktail"]) if comp["tags_cocktail"] else []
+        geo_centroid = json.loads(comp["geo_centroid"]) if comp["geo_centroid"] else {}
 
-    now = time.time()
-    tx_hash = f"0x{int(now * 1000):x}{token_id:04x}c4b88144d50893a2"
+        now = time.time()
+        tx_hash = f"0x{int(now * 1000):x}{token_id:04x}c4b88144d50893a2"
 
-    # Assemble ERC-721 OpenSea compliant metadata
-    metadata = {
-        "name": f"{comp['title']} #{token_id}",
-        "description": f"{comp.get('description', '')}\n\nMinted via AETHER-FLICKR on Base L2. Blended from {len(contributing_photos)} historical photographs.",
-        "image": comp["image_url"],
-        "animation_url": comp["video_url"],
-        "external_url": f"https://aether.voidride.art/mint/{token_id}",
-        "attributes": [
-            {"trait_type": "Pool Category", "value": pool["category"]},
-            {"trait_type": "Pool Title", "value": pool["title"]},
-            {"trait_type": "Contributing Photos", "value": len(contributing_photos)},
-            {"trait_type": "Stitch Algorithm", "value": comp["stitch_mode"].capitalize()},
-            {"trait_type": "Centroid Latitude", "value": geo_centroid.get("lat")},
-            {"trait_type": "Centroid Longitude", "value": geo_centroid.get("lng")},
-            {"trait_type": "Primary Tags", "value": ", ".join(tags_cocktail[:5])},
-        ],
-        "provenance": {
+        # Assemble ERC-721 OpenSea compliant metadata
+        metadata = {
+            "name": f"{comp['title']} #{token_id}",
+            "description": f"{comp.get('description', '')}\n\nMinted via AETHER-FLICKR on Robinhood Chain (ID: 4663). Blended from {len(contributing_photos)} historical photographs.",
+            "image": comp["image_url"],
+            "animation_url": comp["video_url"],
+            "external_url": f"https://aether.voidride.art/mint/{token_id}",
+            "attributes": [
+                {"trait_type": "Pool Category", "value": pool["category"]},
+                {"trait_type": "Pool Title", "value": pool["title"]},
+                {"trait_type": "Contributing Photos", "value": len(contributing_photos)},
+                {"trait_type": "Stitch Algorithm", "value": comp["stitch_mode"].capitalize()},
+                {"trait_type": "Centroid Latitude", "value": geo_centroid.get("lat")},
+                {"trait_type": "Centroid Longitude", "value": geo_centroid.get("lng")},
+                {"trait_type": "Primary Tags", "value": ", ".join(tags_cocktail[:5])},
+            ],
+            "provenance": {
+                "token_id": token_id,
+                "composition_id": comp_id,
+                "contributing_photos": contributing_photos,
+            },
+        }
+
+        # Increment pool minted_count
+        cur.execute("UPDATE pools SET minted_count = minted_count + 1 WHERE id = ?;", (pool_id,))
+
+        # Insert mint record
+        cur.execute(
+            """
+            INSERT INTO mints
+            (token_id, composition_id, pool_id, minter_wallet, price_paid_eth, tx_hash, metadata_json, image_url, video_url, title, contributing_count, minted_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                token_id,
+                comp_id,
+                pool_id,
+                wallet,
+                pool["price_eth"],
+                tx_hash,
+                json.dumps(metadata),
+                comp["image_url"],
+                comp["video_url"],
+                comp["title"],
+                len(contributing_photos),
+                now,
+            ),
+        )
+
+        conn.commit()
+        return {
             "token_id": token_id,
-            "composition_id": comp_id,
-            "contributing_photos": contributing_photos,
-        },
-    }
-
-    # Increment pool minted_count
-    cur.execute("UPDATE pools SET minted_count = minted_count + 1 WHERE id = ?;", (pool_id,))
-
-    # Insert mint record
-    cur.execute(
-        """
-        INSERT INTO mints
-        (token_id, composition_id, pool_id, minter_wallet, price_paid_eth, tx_hash, metadata_json, image_url, video_url, title, contributing_count, minted_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-        """,
-        (
-            token_id,
-            comp_id,
-            pool_id,
-            wallet,
-            pool["price_eth"],
-            tx_hash,
-            json.dumps(metadata),
-            comp["image_url"],
-            comp["video_url"],
-            comp["title"],
-            len(contributing_photos),
-            now,
-        ),
-    )
-
-    conn.commit()
-    conn.close()
-
-    return {
-        "token_id": token_id,
-        "pool_id": pool_id,
-        "pool_title": pool["title"],
-        "tx_hash": tx_hash,
-        "price_eth": pool["price_eth"],
-        "minter_wallet": wallet,
-        "metadata": metadata,
-        "image_url": comp["image_url"],
-        "video_url": comp["video_url"],
-    }
+            "pool_id": pool_id,
+            "pool_title": pool["title"],
+            "tx_hash": tx_hash,
+            "price_eth": pool["price_eth"],
+            "minter_wallet": wallet,
+            "metadata": metadata,
+            "image_url": comp["image_url"],
+            "video_url": comp["video_url"],
+        }
+    finally:
+        conn.close()
 
 
 def get_recent_mints(limit: int = 24) -> List[Dict[str, Any]]:

@@ -16,24 +16,44 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from backend.database import (
-    init_aether_db,
-    get_archive_stats,
-    get_spatial_photos,
-    search_photos,
-    get_photo_detail,
-    get_pools,
-    create_or_update_pool,
-    save_composition,
-    mint_nft,
-    get_recent_mints,
-)
-from backend.robinhood_chain import (
-    ROBINHOOD_MAINNET,
-    CONTRACT_CONFIG,
-    COMPOSITE_NFT_ABI,
-    robinhood_client,
-)
+try:
+    from .database import (
+        init_aether_db,
+        get_archive_stats,
+        get_spatial_photos,
+        search_photos,
+        get_photo_detail,
+        get_pools,
+        create_or_update_pool,
+        save_composition,
+        mint_nft,
+        get_recent_mints,
+    )
+    from .robinhood_chain import (
+        ROBINHOOD_MAINNET,
+        CONTRACT_CONFIG,
+        COMPOSITE_NFT_ABI,
+        robinhood_client,
+    )
+except (ImportError, ValueError):
+    from backend.database import (
+        init_aether_db,
+        get_archive_stats,
+        get_spatial_photos,
+        search_photos,
+        get_photo_detail,
+        get_pools,
+        create_or_update_pool,
+        save_composition,
+        mint_nft,
+        get_recent_mints,
+    )
+    from backend.robinhood_chain import (
+        ROBINHOOD_MAINNET,
+        CONTRACT_CONFIG,
+        COMPOSITE_NFT_ABI,
+        robinhood_client,
+    )
 
 app = FastAPI(
     title="AETHER-FLICKR // Robinhood Chain Spatial Minting Engine",
@@ -140,7 +160,7 @@ def api_stats():
 @app.get("/api/photos/spatial")
 def api_spatial(
     mode: str = Query("globe", pattern="^(globe|cosmos|torus|helix)$"),
-    limit: int = Query(1200, ge=50, le=4000),
+    limit: int = Query(1200, ge=1, le=4000),
     category: Optional[str] = Query(None),
 ):
     """Retrieve photos with calculated 3D coordinates for the chosen projection."""
