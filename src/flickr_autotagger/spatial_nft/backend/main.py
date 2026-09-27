@@ -55,10 +55,18 @@ except (ImportError, ValueError):
         robinhood_client,
     )
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_aether_db()
+    yield
+
 app = FastAPI(
     title="AETHER-FLICKR // Robinhood Chain Spatial Minting Engine",
     description="3D Photogrammetry & Dual-Asset Generative NFT Platform on Robinhood Chain (Arbitrum Orbit L2, Chain ID: 4663)",
     version="2.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -111,10 +119,7 @@ class VerifyTxPayload(BaseModel):
     tx_hash: str
 
 
-@app.on_event("startup")
-def startup_event():
-    """Ensure database and default pools are ready on launch."""
-    init_aether_db()
+
 
 
 # --- Robinhood Chain Endpoints ---
@@ -205,7 +210,8 @@ def api_get_pools():
 def api_save_pool(payload: PoolCreateUpdate):
     """Create or update a pool category (Admin)."""
     try:
-        return create_or_update_pool(payload.dict())
+        data = payload.model_dump() if hasattr(payload, "model_dump") else payload.dict()
+        return create_or_update_pool(data)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -214,7 +220,8 @@ def api_save_pool(payload: PoolCreateUpdate):
 def api_save_composition(payload: CompositionPayload):
     """Save a user composition recipe."""
     try:
-        return save_composition(payload.dict())
+        data = payload.model_dump() if hasattr(payload, "model_dump") else payload.dict()
+        return save_composition(data)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -223,7 +230,8 @@ def api_save_composition(payload: CompositionPayload):
 def api_mint(payload: MintPayload):
     """Mint a composition into a pool category and generate the Robinhood Chain NFT."""
     try:
-        mint_result = mint_nft(payload.dict())
+        data = payload.model_dump() if hasattr(payload, "model_dump") else payload.dict()
+        mint_result = mint_nft(data)
         mint_result["network"] = ROBINHOOD_MAINNET["name"]
         mint_result["chain_id"] = ROBINHOOD_MAINNET["chain_id"]
         mint_result["explorer_url"] = f"{ROBINHOOD_MAINNET['explorer_url']}/tx/{mint_result['tx_hash']}"
