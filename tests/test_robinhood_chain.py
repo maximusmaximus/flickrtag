@@ -16,7 +16,7 @@ def test_robinhood_constants():
     assert ROBINHOOD_MAINNET["hex_chain_id"] == "0x1237"
     assert ROBINHOOD_MAINNET["symbol"] == "ETH"
     assert "chain.robinhood.com" in ROBINHOOD_MAINNET["rpc_url"]
-    assert "explorer.chain.robinhood.com" in ROBINHOOD_MAINNET["explorer_url"]
+    assert "robinhoodchain.blockscout.com" in ROBINHOOD_MAINNET["explorer_url"]
 
 
 def test_robinhood_client_status():
