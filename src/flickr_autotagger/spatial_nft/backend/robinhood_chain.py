@@ -20,14 +20,14 @@ ROBINHOOD_MAINNET = {
     "symbol": "ETH",
     "decimals": 18,
     "rpc_url": "https://rpc.mainnet.chain.robinhood.com",
-    "explorer_url": "https://explorer.chain.robinhood.com",
+    "explorer_url": "https://robinhoodchain.blockscout.com",
     "is_testnet": False,
 }
 
 ROBINHOOD_TESTNET = {
-    "chain_id": 4664,
-    "hex_chain_id": "0x1238",
-    "name": "Robinhood Sepolia Testnet",
+    "chain_id": 46630,
+    "hex_chain_id": "0xb626",
+    "name": "Robinhood Chain Testnet",
     "symbol": "ETH",
     "decimals": 18,
     "rpc_url": "https://rpc.testnet.chain.robinhood.com",

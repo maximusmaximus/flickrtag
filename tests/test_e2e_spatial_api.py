@@ -117,7 +117,7 @@ def test_e2e_composition_and_mint_pipeline():
     assert mint_data["token_id"] >= 1000
     assert mint_data["network"] == "Robinhood Chain"
     assert mint_data["chain_id"] == 4663
-    assert "explorer.chain.robinhood.com" in mint_data["explorer_url"]
+    assert "robinhoodchain.blockscout.com" in mint_data["explorer_url"]
 
     # 3. Verify in Recent Mints Feed
     recent_res = client.get("/api/mints/recent?limit=10")

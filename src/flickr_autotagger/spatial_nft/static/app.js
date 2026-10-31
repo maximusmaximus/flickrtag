@@ -13,7 +13,7 @@ const ROBINHOOD_CHAIN = {
   chainName: 'Robinhood Chain',
   nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
   rpcUrls: ['https://rpc.mainnet.chain.robinhood.com'],
-  blockExplorerUrls: ['https://explorer.chain.robinhood.com'],
+  blockExplorerUrls: ['https://robinhoodchain.blockscout.com'],
 };
 
 // --- Global Application State ---
@@ -875,7 +875,7 @@ window.executeMint = async function () {
     progressBox.innerHTML = `
       <div class="text-emerald-400 font-bold text-sm">🎉 Mint Successful on Robinhood Chain! Token #${mintData.token_id}</div>
       <div class="text-[11px] font-mono text-slate-300">
-        Tx: <a href="https://explorer.chain.robinhood.com/tx/${mintData.tx_hash}" target="_blank" class="text-[#00f0ff] underline hover:text-white">${mintData.tx_hash.slice(0, 18)}... (View on Explorer ↗)</a>
+        Tx: <a href="https://robinhoodchain.blockscout.com/tx/${mintData.tx_hash}" target="_blank" class="text-[#00f0ff] underline hover:text-white">${mintData.tx_hash.slice(0, 18)}... (View on Explorer ↗)</a>
       </div>
     `;
 

@@ -171,7 +171,7 @@ Open `http://localhost:8000` to access:
   - **Chain ID**: `4663` (`0x1237`)
   - **Currency**: `ETH`
   - **RPC URL**: `https://rpc.mainnet.chain.robinhood.com`
-  - **Block Explorer**: `https://explorer.chain.robinhood.com`
+  - **Block Explorer**: `https://robinhoodchain.blockscout.com`
   - **Smart Contract**: [`contracts/RobinhoodCompositeNFT.sol`](contracts/RobinhoodCompositeNFT.sol) (ERC-721A + EIP-2981)
 - **Curator Admin Console**: Manage category pools, adjust minting prices and supply quotas, monitor `state.db` pipeline telemetry, and track treasury volume.
 - **Public Live Mints**: Feed of recent on-chain mints with dual-asset (image + video) previews and parent photo lineage trees.
